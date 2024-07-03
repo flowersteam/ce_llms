@@ -1,0 +1,15 @@
+termcolor==2.4.0
+bitsandbytes==0.43.0
+transformers==4.36.2
+peft==0.10.0
+accelerate==0.28.0
+trl==0.8.1
+datasets==2.16.0
+sentencepiece==0.1.99
+IPython==8.18.1
+matplotlib==3.8.3
+termcolor==2.4.0
+nltk==3.8.1
+jsonlines==4.0.0
+scikit-learn==1.5.0
+umap-learn==0.5.6
