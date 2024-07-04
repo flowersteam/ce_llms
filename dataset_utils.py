@@ -4,6 +4,7 @@ import csv
 import pandas as pd
 # nltk.download("punkt")
 
+import torch
 from transformers import BertTokenizer, BertModel
 
 
@@ -125,13 +126,20 @@ class BertEmbedder:
 
     def __init__(self):
         self.bert_tokenizer = BertTokenizer.from_pretrained('bert-base-uncased')
-        self.bert_model = BertModel.from_pretrained("bert-base-uncased").eval().to("cuda")
+        if torch.cuda.is_available():
+            self.device = torch.device("cuda")
+        elif torch.has_mps:
+            self.device = torch.device("mps")
+        else:
+            self.device = torch.device("cpu")
+
+        self.bert_model = BertModel.from_pretrained("bert-base-uncased").eval().to(self.device)
 
     def add_bert_embeddings(self, dataset):
 
         def bert_embed_text(examples):
             encoded_input = self.bert_tokenizer(examples['text'], return_tensors='pt', padding=True)
-            encoded_input = {k: v.cuda() for k, v in encoded_input.items()}
+            encoded_input = {k: v.to(self.device) for k, v in encoded_input.items()}
             output = self.bert_model(**encoded_input)
             embeddigs = output['last_hidden_state'][:, 0, :]  # we take the representation of the [CLS] token
             return {"embeddings": list(embeddigs)}

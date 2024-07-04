@@ -29,7 +29,7 @@ if __name__ == "__main__":
         'var_diversities', 'cos_diversities',
         'logreg_loss', 'logreg_accuracy',
         'mean_ttrs', 'mean_n_words', 'dataset_lens',
-        'ppls'
+        'ppls', 'positivity'
     ])
     parser.add_argument("--save-path", type=str, default=None)
     parser.add_argument("--no-show", action="store_true")

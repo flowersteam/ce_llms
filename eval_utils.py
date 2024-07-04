@@ -10,6 +10,8 @@ import torch
 
 from sklearn.linear_model import LogisticRegression
 from sklearn.metrics import log_loss
+from nltk.sentiment.vader import SentimentIntensityAnalyzer
+
 
 hostname = os.uname()[1]
 if hostname == "PTB-09003439":
@@ -22,6 +24,10 @@ os.environ['HF_HOME'] = hf_cache_dir
 
 def num_words(text):
     return len(word_tokenize(text))
+
+def get_positivity(text):
+    sid = SentimentIntensityAnalyzer()    
+    return sid.polarity_scores(text)['compound']
 
 
 def calculate_ttr(text):
