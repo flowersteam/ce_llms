@@ -88,8 +88,8 @@ if __name__ == "__main__":
         ]:
             for type in [
                 "{} a political {}",
-                "{} a {} regarding the Democrat party.",
-                "{} a {} regarding the Republican party."
+                "{} a {} regarding politics."
+                "{} a {} about politics."
             ]:
                 instructions.append(type.format(prefix, m))
 
