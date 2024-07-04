@@ -116,7 +116,10 @@ for d in datasets:
 
     results['mean_ttrs'].append(np.mean([calculate_ttr(tx) for tx in d['text']]))
     results['mean_n_words'].append(np.mean([num_words(tx) for tx in d['text']]))
+    results['positivity'].append(np.mean([get_positivity(tx) for tx in d['text']])) 
     results['dataset_lens'].append(len(d['text']))
+
+
 
     if args.ppl:
         results['ppls'].append(ppl_metric.evaluate(d['text'], bs=500))
