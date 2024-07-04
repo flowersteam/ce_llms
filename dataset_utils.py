@@ -76,7 +76,7 @@ def load_reddit_dataset(cache_dir=None, load_n=None, load_frac=1.0, lean=None):
 
 def load_dataset_from_csv(filename):
     print(f"Loading dataset from {filename}")
-    df = pd.read_csv(filename)
+    df = pd.read_csv(filename, keep_default_na=False)
     return Dataset.from_pandas(df)
 
 

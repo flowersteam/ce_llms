@@ -42,10 +42,12 @@ if __name__ == "__main__":
     # Dataset
     parser.add_argument('--dataset', type=str, default="twitter")
     parser.add_argument('--load-n', type=int, default=4000)
+    parser.add_argument('--gen-n', type=int, default=4000)
     parser.add_argument('--lean', type=str, default=None, choices=["Liberal", "Conservative"])
     parser.add_argument('--deduplicate', action="store_true", help='Deduplicate generated posts')
 
     args = parser.parse_args()
+    print(f"Gen: {args.generation} Part: {args.participant_id}")
 
     if args.exp_path is None:
         timestamp = datetime.datetime.now().strftime("%Y_%m_%d_%H_%M_%S")
@@ -76,23 +78,20 @@ if __name__ == "__main__":
 
     tokenizer, model = load_model(args.model_name, cache_dir=hf_cache_dir)
 
-    instructions = [
-        "Generate a political post.",
-        "Generate a political tweet.",
-        "Generate a political statement.",
-        "Generate a political comment.",
-        "Generate a political remark.",
-        "Generate a political view.",
-        "Generate a political viewpoint.",
-        "Generate a political opinion.",
-        "Generate a political reaction.",
-        "Generate a political impression.",
-        "Generate a political sentiment.",
-        "Generate a political thought.",
-        "Generate a political attitude.",
-        "Generate a political idea.",
-        "Generate a political judgement.",
-    ]
+    # instructions
+    instructions = []
+    for prefix in ["Generate", "Write"]:
+        for m in [
+            "post", "comment", "viewpoint", "impression", "attitude",
+            "tweet", "remark", "opinion", "sentiment", "idea",
+            "statement", "view", "reaction", "thought", "judgement"
+        ]:
+            for type in [
+                "{} a political {}",
+                "{} a {} regarding the Democrat party.",
+                "{} a {} regarding the Republican party."
+            ]:
+                instructions.append(type.format(prefix, m))
 
     # Train the model
     train_logs = {}
@@ -153,7 +152,7 @@ if __name__ == "__main__":
         model=model,
         save_dir=curr_generation_save_dir,
         instructions=instructions,
-        n_posts_to_generate=len(train_dataset),
+        n_posts_to_generate=args.gen_n,
         verbose=False,
         deduplicate=args.deduplicate,
         generation_arguments=dict(
@@ -191,6 +190,9 @@ if __name__ == "__main__":
         json.dump(logs, f)
 
     print(f"Log saved to {log_json_path}.")
+
+    del model
+    torch.cuda.empty_cache()
 
 
 

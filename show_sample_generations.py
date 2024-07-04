@@ -32,7 +32,6 @@ datasets = []
 participant = "part_0"
 n_samples = 10
 n_generations = len(list(experiment_dir.glob("gen_[0-9]*")))
-n_generations=4
 
 for gen_i in range(0, n_generations):
     gen_csv = experiment_dir / f"gen_{gen_i}" / f"{participant}/generations.csv"

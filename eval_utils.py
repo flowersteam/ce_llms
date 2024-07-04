@@ -27,7 +27,10 @@ def num_words(text):
 def calculate_ttr(text):
     # unique words/all words
     words = word_tokenize(text)
-    ttr = len(set(words)) / len(words)
+    if len(words) == 0:
+        ttr = 0
+    else:
+        ttr = len(set(words)) / len(words)
     return ttr
 
 
@@ -91,7 +94,6 @@ class Perplexity:
             device_map="auto",
             trust_remote_code=True,
             cache_dir=hf_cache_dir,
-            attn_implementation="flash_attention_2",
         ).eval()
 
         self.tokenizer = AutoTokenizer.from_pretrained(self.model_id, cache_dir=hf_cache_dir)
