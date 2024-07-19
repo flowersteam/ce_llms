@@ -1,0 +1,5 @@
+nltk==3.8.1
+jsonlines==4.0.0
+scikit-learn==1.5.1
+umap-learn==0.5.6
+detoxify==0.5.2

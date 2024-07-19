@@ -4,13 +4,11 @@ import argparse
 import datetime
 from pathlib import Path
 
-import pandas as pd
-
 from dataset_utils import *
 from model_utils import *
 from eval_utils import *
 
-from peft import LoraConfig
+from unsloth import is_bfloat16_supported
 
 # Set the huggingface cache path
 
@@ -21,14 +19,17 @@ else:
     hf_cache_dir = "/gpfsscratch/rech/imi/utu57ed/.cache/huggingface"
     os.environ['TRANSFORMERS_OFFLINE'] = '1'
 
-os.environ['HF_HOME'] = hf_cache_dir
 
 if __name__ == "__main__":
+
+    start_time = time.time()
 
     parser = argparse.ArgumentParser(description='Process some integers.')
     parser.add_argument('--generation', "-g", type=int, default=0, help='generation of the model')
     parser.add_argument('--participant-id', "-i", type=int, default=0, help='participant id (e.g. index)')
     parser.add_argument('--exp-path', type=str, default=None)
+    parser.add_argument('--seed', type=int, default="1")
+    parser.add_argument('--dataset-seed', type=int, default="1")
 
     # Model
     parser.add_argument('--model-name', type=str, default="mistralai/Mistral-7B-v0.1")
@@ -59,16 +60,23 @@ if __name__ == "__main__":
     data_logs = {}
     # Load train data
     if args.generation == 0:
+        print(f"Loading a human dataset, with seed {args.dataset_seed}")
+
         if args.dataset == "twitter":
-            train_dataset, _, _ = load_twitter_dataset(cache_dir=hf_cache_dir, load_n=args.load_n, lean=args.lean)
+            train_dataset, _, _ = load_twitter_dataset(
+                cache_dir=hf_cache_dir, load_n=args.load_n, lean=args.lean, seed=args.dataset_seed)
+
+            d_ = train_dataset.map(remove_links, batched=True)
 
         elif args.dataset == "reddit":
-            train_dataset, _, _ = load_reddit_dataset(cache_dir=hf_cache_dir, load_n=args.load_n, lean=args.lean)
+            train_dataset, _, _ = load_reddit_dataset(
+                cache_dir=hf_cache_dir, load_n=args.load_n, lean=args.lean, seed=args.dataset_seed)
+
         else:
             raise NotImplementedError(f"Undefined dataset {args.dataset}.")
 
     else:
-
+        print("Loading the previous dataset.")
         prev_generation_save_dir = Path(args.exp_path) / f"gen_{args.generation - 1}" / f"part_{args.participant_id}"
         prev_generation_generations_path = str(prev_generation_save_dir / "generations.csv")
         train_dataset = load_dataset_from_csv(prev_generation_generations_path)
@@ -76,74 +84,54 @@ if __name__ == "__main__":
     data_logs["dataset_size"] = len(train_dataset)
     print(f"Dataset size: ", data_logs["dataset_size"])
 
-    tokenizer, model = load_model(args.model_name, cache_dir=hf_cache_dir)
-
     # instructions
-    instructions = []
-    for prefix in ["Generate", "Write"]:
-        for m in [
-            "post", "comment", "viewpoint", "impression", "attitude",
-            "tweet", "remark", "opinion", "sentiment", "idea",
-            "statement", "view", "reaction", "thought", "judgement"
-        ]:
-            for type in [
-                "{} a political {}",
-                "{} a {} regarding politics."
-                "{} a {} about politics."
-            ]:
-                instructions.append(type.format(prefix, m))
+    instructions = get_instructions()
 
     # Train the model
     train_logs = {}
-    if train_dataset:
-        # Lora configuration
-        peft_config = LoraConfig(
-            r=args.lora_r,
-            lora_alpha=args.lora_alpha,
-            lora_dropout=args.lora_dropout,
-            bias="none",
-            task_type="CAUSAL_LM",
-            target_modules=["q_proj", "k_proj", "v_proj", "o_proj", "gate_proj"]
-        )
-        tokenizer, model = prepare_model_for_training(
-            tokenizer=tokenizer, model=model, peft_config=peft_config
-        )
 
-        train_args = dict(
-            num_train_epochs=1,
-            max_steps=-1,
-            per_device_train_batch_size=16,
-            gradient_accumulation_steps=1,
-            optim="paged_adamw_32bit",
-            save_steps=500,
-            logging_steps=50,
-            learning_rate=2e-4,  # default
-            weight_decay=0.001,
-            fp16=False,
-            bf16=False,
-            gradient_checkpointing=True,
-            gradient_checkpointing_kwargs={'use_reentrant': False},
-            max_grad_norm=0.3,
-            warmup_ratio=0.03,
-            group_by_length=True,
-            lr_scheduler_type="constant",
-            save_strategy="steps"
-        )
+    assert args.model_name.startswith("unsloth")
 
-        print("Training")
-        # Train model
-        model_save_dir = curr_generation_save_dir / "model"
-        train_logs = train_model(
-            tokenizer=tokenizer,
-            model=model,
-            peft_config=peft_config,
-            dataset=train_dataset,
-            save_dir=model_save_dir,
-            instructions=instructions,
-            train_args=train_args
-        )
-        hours, minutes, seconds = secs_2_hms(train_logs['train_result'].metrics['train_runtime'])
-        print("Training Time: %d:%02d:%02d" % (hours, minutes, seconds))
+    print("Loading the model")
+    assert args.model_name == "unsloth/llama-3-8b-bnb-4bit"  # for now
+    model_path = os.path.join(hf_cache_dir, args.model_name)
+
+    model, tokenizer = load_model(model_path, args.seed)
+
+    # Linear
+    train_args = dict(
+        num_train_epochs=1,
+        max_steps=-1,
+        # max_steps=5,
+        per_device_train_batch_size=16,
+        gradient_accumulation_steps=1,
+        optim="adamw_8bit",
+        save_steps=500,
+        logging_steps=50,
+        fp16=not is_bfloat16_supported(),
+        bf16=is_bfloat16_supported(),
+        warmup_steps=5,
+        weight_decay=0.01,
+        learning_rate=2e-4,
+        lr_scheduler_type="linear",
+        seed=args.seed,
+        save_strategy="steps",
+        group_by_length=True,
+    )
+
+    print("Training")
+    # Train model
+    model_save_dir = curr_generation_save_dir / "model"
+    train_logs = train_model_unsloth(
+        tokenizer=tokenizer,
+        model=model,
+        dataset=train_dataset,
+        save_dir=model_save_dir,
+        instructions=instructions,
+        train_args=train_args
+    )
+    hours, minutes, seconds = secs_2_hms(train_logs['train_result'].metrics['train_runtime'])
+    print("Training Time: %d:%02d:%02d" % (hours, minutes, seconds))
 
     print("Generating")
 
@@ -177,12 +165,17 @@ if __name__ == "__main__":
     print("Min TTR: ", np.min(metrics['per_generation_metrics']["TTR"]))
     print("Joint TTR: ", metrics['JointTTR'])
 
+    end_time = time.time()
+    total_time = end_time - start_time
+    print(f"Total time: {total_time}")
+
     logs = {
         "args": vars(args),
         "data": data_logs,
         "training": train_logs,
         "generation": gen_logs,
         "evaluation": metrics,
+        "total_time": total_time,
     }
 
     log_json_path = curr_generation_save_dir / "log.json"
