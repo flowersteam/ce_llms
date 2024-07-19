@@ -6,3 +6,4 @@ eval_results/*
 viz_results/*
 retrieve_*.sh
 sync_*.sh
+.backup
