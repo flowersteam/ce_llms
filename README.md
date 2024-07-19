@@ -2,22 +2,37 @@
 
 ## Setup your conda environment with unsloth
 
+Load the modules
 ```
 module load python/3.10.4
 module load cuda/12.2.0
 module load cudnn/8.9.7.29-cuda
+```
 
+Create the conda env 
+```
 conda create --name unsloth_env python=3.10
 conda activate unsloth_env
+```
 
+Install unsloth
+```
 # you can use conda as well, but mamba is much faster
 mamba install cudatoolkit "xformers<0.0.27" bitsandbytes pytorch pytorch-cuda=12.1 -c pytorch -c nvidia -c xformers -c conda-forge -y
 
 pip install "unsloth[colab-new] @ git+https://github.com/unslothai/unsloth.git" --no-cache-dir
 
 pip install --no-cache-dir --no-deps "trl<0.9.0" "xformers<0.0.27" peft accelerate bitsandbytes
+```
 
+Install other requirements
+```
 pip install --no-cache-dir -r requirements_unsloth.txt
+```
+
+Install vader_lexicon 
+```commandline
+python -c "import nltk; nltk.download('vader_lexicon')"
 ```
 
 ## Setup your cache dir
