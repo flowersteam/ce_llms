@@ -152,7 +152,6 @@ for i, d in enumerate(datasets):
     results['cos_diversities'].append(cos_diversities)
 
 
-
     if args.human_dataset:
         loss, acc = fit_logreg(
             np.array(human_dataset['embeddings']),
@@ -160,8 +159,6 @@ for i, d in enumerate(datasets):
         )
         results['logreg_loss'].append(loss)
         results['logreg_accuracy'].append(acc)
-
-
 
 
     try:
@@ -174,6 +171,7 @@ for i, d in enumerate(datasets):
         with open(f'{eval_save_dir}/ttrs_gen{i}.pickle', 'wb') as f:
             pickle.dump(ttrs, f)
         print(f"Saved ttrs to pickle")
+
     try:
         with open(f'{eval_save_dir}/n_words_gen{i}.pickle', 'rb') as f:
             n_words = pickle.load(f)
@@ -184,6 +182,7 @@ for i, d in enumerate(datasets):
         with open(f'{eval_save_dir}/n_words_gen{i}.pickle', 'wb') as f:
             pickle.dump(n_words, f)
         print(f"Saved n_words to pickle")
+
     try:
         with open(f'{eval_save_dir}/positivity_gen{i}.pickle', 'rb') as f:
             positivity = pickle.load(f)
@@ -199,7 +198,6 @@ for i, d in enumerate(datasets):
     results['mean_n_words'].append(n_words)
     results['positivity'].append(positivity)
 
-
     try:
         with open(f'{eval_save_dir}/dataset_lens_gen{i}.pickle', 'rb') as f:
             dataset_lens = pickle.load(f)
@@ -212,9 +210,7 @@ for i, d in enumerate(datasets):
         print(f"Saved dataset_lens to pickle")
     results['dataset_lens'].append(dataset_lens)
 
-
-
-    try: 
+    try:
         with open(f'{eval_save_dir}/toxicity_gen{i}.pickle', 'rb') as f:
             toxicity = pickle.load(f)
         print(f"Loaded toxicity from pickle")
