@@ -2,6 +2,7 @@ from pathlib import Path
 import json
 import argparse
 from collections import defaultdict
+import pickle
 
 from dataset_utils import *
 from eval_utils import *
@@ -73,13 +74,25 @@ participant = "part_0"
 n_samples = 5
 n_generations = len(list(experiment_dir.glob("gen_[0-9]*")))
 
-print(f"Adding bert embeddings")
-for gen_i in range(0, n_generations):
-    print(f"Gen {gen_i}/{n_generations-1}")
-    gen_csv = experiment_dir / f"gen_{gen_i}" / f"{participant}/generations.csv"
-    ai_dataset = load_dataset_from_csv(gen_csv)
-    ai_dataset = bert_embedder.add_bert_embeddings(ai_dataset)
-    datasets.append(ai_dataset)
+
+# Store datasets to avoid recomputing
+try:
+    with open(f'{eval_save_dir}/datasets.pkl', 'rb') as f:
+        datasets = pickle.load(f)
+    print(f"Loaded datasets from pickle")
+except:
+    print(f"Adding bert embeddings")
+    for gen_i in range(0, n_generations):
+        print(f"Gen {gen_i}/{n_generations-1}")
+        gen_csv = experiment_dir / f"gen_{gen_i}" / f"{participant}/generations.csv"
+        ai_dataset = load_dataset_from_csv(gen_csv)
+        ai_dataset = bert_embedder.add_bert_embeddings(ai_dataset)
+        datasets.append(ai_dataset)
+        #store to pickle
+        with open(f'{eval_save_dir}/datasets.pkl', 'wb') as f:
+            pickle.dump(datasets, f)
+    print(f"Saved datasets to pickle")
+
 
 dataset_labels = human_dataset_labels + [f"AI gen {i}" for i in range(len(datasets)-len(human_dataset_labels))]
 
@@ -101,10 +114,41 @@ if args.ppl:
     ppl_metric = Perplexity(ppl_model)
 
 
-for d in datasets:
+for i, d in enumerate(datasets):
+    print(f'datasets {i}/{len(datasets)}')
     embs = np.array(d['embeddings'])
-    results['var_diversities'].append(compute_var_diveristy(embs))
-    results['cos_diversities'].append(compute_cos_diveristy(embs))
+
+    ## Storing full data to avoid recomputing each time
+
+    
+    try: 
+        with open(f'{eval_save_dir}/var_diversities_gen{i}.pickle', 'rb') as f:
+            var_diversities = pickle.load(f)
+        print(f"Loaded var_diversities from pickle")
+    except:
+        var_diversities = compute_var_diveristy(embs)
+        #store to pickle
+        with open(f'{eval_save_dir}/var_diversities_gen{i}.pickle', 'wb') as f:
+            pickle.dump(var_diversities, f)
+        print(f"Saved var_diversities to pickle")
+
+    results['var_diversities'].append(var_diversities)
+
+
+    try:
+        with open(f'{eval_save_dir}/cos_diversities_gen{i}.pickle', 'rb') as f:
+            cos_diversities = pickle.load(f)
+        print(f"Loaded cos_diversities from pickle")
+    except:
+        cos_diversities = compute_cos_diveristy(embs)
+        #store to pickle
+        with open(f'{eval_save_dir}/cos_diversities_gen{i}.pickle', 'wb') as f:
+            pickle.dump(cos_diversities, f)
+        print(f"Saved cos_diversities to pickle")
+
+    results['cos_diversities'].append(cos_diversities)
+
+
 
     if args.human_dataset:
         loss, acc = fit_logreg(
@@ -114,11 +158,87 @@ for d in datasets:
         results['logreg_loss'].append(loss)
         results['logreg_accuracy'].append(acc)
 
-    results['mean_ttrs'].append(np.mean([calculate_ttr(tx) for tx in d['text']]))
-    results['mean_n_words'].append(np.mean([num_words(tx) for tx in d['text']]))
-    results['positivity'].append(np.mean([get_positivity(tx) for tx in d['text']])) 
-    results['dataset_lens'].append(len(d['text']))
 
+
+
+    try:
+        with open(f'{eval_save_dir}/ttrs_gen{i}.pickle', 'rb') as f:
+            ttrs = pickle.load(f)
+        print(f"Loaded ttrs from pickle")
+    except:
+        ttrs = [calculate_ttr(tx) for tx in d['text']]
+        #store to pickle
+        with open(f'{eval_save_dir}/ttrs_gen{i}.pickle', 'wb') as f:
+            pickle.dump(ttrs, f)
+        print(f"Saved ttrs to pickle")
+    try:
+        with open(f'{eval_save_dir}/n_words_gen{i}.pickle', 'rb') as f:
+            n_words = pickle.load(f)
+        print(f"Loaded n_words from pickle")
+    except:
+        n_words = [num_words(tx) for tx in d['text']]
+        #store to pickle
+        with open(f'{eval_save_dir}/n_words_gen{i}.pickle', 'wb') as f:
+            pickle.dump(n_words, f)
+        print(f"Saved n_words to pickle")
+    try:
+        with open(f'{eval_save_dir}/positivity_gen{i}.pickle', 'rb') as f:
+            positivity = pickle.load(f)
+        print(f"Loaded positivity from pickle")
+    except:
+        positivity = [get_positivity(tx) for tx in d['text']]
+        #store to pickle
+        with open(f'{eval_save_dir}/positivity_gen{i}.pickle', 'wb') as f:
+            pickle.dump(positivity, f)
+        print(f"Saved positivity to pickle")
+
+    results['mean_ttrs'].append(ttrs)
+    results['mean_n_words'].append(n_words)
+    results['positivity'].append(positivity)
+
+
+    try:
+        with open(f'{eval_save_dir}/dataset_lens_gen{i}.pickle', 'rb') as f:
+            dataset_lens = pickle.load(f)
+        print(f"Loaded dataset_lens from pickle")
+    except:
+        dataset_lens = len(d['text'])
+        #store to pickle
+        with open(f'{eval_save_dir}/dataset_lens_gen{i}.pickle', 'wb') as f:
+            pickle.dump(dataset_lens, f)
+        print(f"Saved dataset_lens to pickle")
+    results['dataset_lens'].append(dataset_lens)
+
+
+
+    try: 
+        with open(f'{eval_save_dir}/toxicity_gen{i}.pickle', 'rb') as f:
+            toxicity = pickle.load(f)
+        print(f"Loaded toxicity from pickle")
+    except:
+        print("computing toxicity...")
+        toxicity = get_toxicity_batch(d['text'])
+        #store to pickle
+        with open(f'{eval_save_dir}/toxicity_gen{i}.pickle', 'wb') as f:
+            pickle.dump(toxicity, f)
+        print(f"Saved toxicity to pickle")
+
+    results['toxicity'].append(toxicity)
+
+    try:
+        with open(f'{eval_save_dir}/political_bias_gen{i}.pickle', 'rb') as f:
+            political_bias = pickle.load(f)
+        print(f"Loaded political_bias from pickle")
+    except:
+        print("computing political bias...")
+        political_bias = get_political_bias_batch(d['text'])
+        #store to pickle
+        with open(f'{eval_save_dir}/political_bias_gen{i}.pickle', 'wb') as f:
+            pickle.dump(political_bias, f)
+        print(f"Saved political_bias to pickle")
+
+
+    results['political_bias'].append(political_bias)
 
 
     if args.ppl:

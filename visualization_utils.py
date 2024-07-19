@@ -9,6 +9,9 @@ from sklearn.preprocessing import StandardScaler
 from sklearn.decomposition import PCA
 from sklearn.manifold import TSNE
 import umap
+import os
+from scipy.spatial import ConvexHull
+
 
 
 @contextmanager
@@ -25,7 +28,15 @@ def plot_and_save(x, ys, labels, ylabel=None, save_path=None, yticks=None, no_sh
     assert len(labels) == len(ys)
 
     for y, label in zip(ys, labels):
-        plt.plot(x, y, label=label)
+        plt.plot(x, [np.mean(y[i]) for i in range(len(y))], label=label)
+
+        #plot standard deviation
+        # plt.fill_between(x, [np.mean(y[i]) - np.std(y[i]) for i in range(len(y))], [np.mean(y[i]) + np.std(y[i]) for i in range(len(y))], alpha=0.2)
+
+        #plot standard error of the mean
+        plt.fill_between(x, [np.mean(y[i]) - np.std(y[i]) / np.sqrt(len(y[i])) for i in range(len(y))], [np.mean(y[i]) + np.std(y[i]) / np.sqrt(len(y[i])) for i in range(len(y))], alpha=0.2)
+
+        
 
     if yticks:
         plt.yticks(yticks)
@@ -45,16 +56,72 @@ def plot_and_save(x, ys, labels, ylabel=None, save_path=None, yticks=None, no_sh
         print(f"Saved to: {save_path}")
 
 
+
+
+#####################################################################
+## TO PLOT TOXICITY AND POLITICAL BIAS EVOLUTION ON THE SAME PLOT ###
+#####################################################################
+
+def plot_2D(y1, y2, label, save_path, no_show):
+   
+    plt.plot([np.mean(y1[i]) for i in range(len(y1))], [np.mean(y2[i]) for i in range(len(y2))], label=label, marker='o')
+    plt.legend()
+    plt.xlabel("Toxicity")
+    plt.ylabel("Political Bias")
+    plt.xlim(-1, 1)
+    plt.ylim(-1, 1)
+    plt.hlines(0, -1, 1, linestyles='dashed', colors='black')
+    plt.vlines(0, -1, 1, linestyles='dashed', colors='black')
+
+    ## Add generation numbers
+    for i in range(len(y1)):
+        plt.annotate(i, (np.mean(y1[i]), np.mean(y2[i]) + 0.02))
+
+
+    if not no_show:
+        plt.show()
+
+    if save_path:
+        plt.savefig(save_path+"_2D.png", dpi=300)
+        plt.savefig(save_path+"_2D.svg")
+        plt.clf()
+        print(f"Saved to: {save_path}_2D")
+
+
+
+#####################################################################
+## TO PLOT THE EMBEDDINGS IN 2D WITH CONVEX HULLS AND MEAN POINTS ###
+#####################################################################
+
 def plot_repr(embs, dataset_lens, labels, save_path):
+    colors= ['b', 'g', 'r', 'c', 'm', 'y', 'orange', 'purple']
     assert len(embs) == sum(dataset_lens)
 
     start = 0
+    points = {}
+    previous_mean = None
     for d_i, d_l in enumerate(dataset_lens):
         s, e = start, start + d_l
-        plt.scatter(embs[s:e, 0], embs[s:e, 1], s=1)
+        plt.scatter(embs[s:e, 0], embs[s:e, 1], s=1, alpha=0.2, c=colors[d_i], label = labels[d_i])
+        #Display mean
+        plt.scatter(embs[s:e, 0].mean(), embs[s:e, 1].mean(), s=100, alpha=1, c=colors[d_i], marker='x')
+        if previous_mean is not None:
+            plt.plot([previous_mean[0], embs[s:e, 0].mean()], [previous_mean[1], embs[s:e, 1].mean()], c='black')
+        previous_mean = embs[s:e, :].mean(axis=0)
         start = e
+        points[labels[d_i]] = embs[s:e]
+    
+    #Add a convex hull
+    for d_i, d_l in enumerate(dataset_lens):
+        points_hull = points[labels[d_i]]
+        hull = ConvexHull(points_hull)
+        for simplex in hull.simplices:
+            plt.plot(points_hull[simplex, 0], points_hull[simplex, 1], alpha=1, c=colors[d_i], linewidth=2, linestyle='dashed')
 
-    plt.legend(labels, loc="right", markerscale=5)
+        #plt.fill(points_hull[hull.vertices,0], points_hull[hull.vertices,1], alpha=0.3,  c=colors[d_i])
+
+
+    plt.legend()
 
     for ext in ["svg", "png"]:
         fig_save_path = f"{save_path}.{ext}"
@@ -74,6 +141,7 @@ def visualize_datasets(datasets, dataset_labels, experiment_tag):
     ss_X = StandardScaler().fit_transform(X)
 
     # PCA
+    os.makedirs("viz_results", exist_ok=True)
     print("PCA fitting")
     with timer_block():
         pca_dataset = PCA(n_components=2).fit_transform(ss_X)

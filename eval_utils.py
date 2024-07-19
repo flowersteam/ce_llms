@@ -11,6 +11,9 @@ import torch
 from sklearn.linear_model import LogisticRegression
 from sklearn.metrics import log_loss
 from nltk.sentiment.vader import SentimentIntensityAnalyzer
+from detoxify import Detoxify
+from transformers import pipeline, AutoModelForSequenceClassification, AutoTokenizer
+
 
 
 hostname = os.uname()[1]
@@ -25,9 +28,38 @@ os.environ['HF_HOME'] = hf_cache_dir
 def num_words(text):
     return len(word_tokenize(text))
 
+
+## Not used currently
 def get_positivity(text):
     sid = SentimentIntensityAnalyzer()    
     return sid.polarity_scores(text)['compound']
+
+
+# Predict toxicity using library from https://pypi.org/project/detoxify/
+toxicity_nlp = Detoxify('original')
+
+def get_toxicity_batch(texts):
+    out = toxicity_nlp.predict(texts)
+
+    return out['toxicity']
+
+
+
+## Predict political bias using pretrained model from https://huggingface.co/premsa/political-bias-prediction-allsides-mDeBERTa
+# -1 = Lean Left, 0 = Center, 1 = Lean Right
+political_model = AutoModelForSequenceClassification.from_pretrained("premsa/political-bias-prediction-allsides-DeBERTa")
+political_tokenizer = AutoTokenizer.from_pretrained("premsa/political-bias-prediction-allsides-DeBERTa")
+political_nlp = pipeline("text-classification", model=political_model, tokenizer=political_tokenizer)
+
+
+def get_political_bias_batch(texts):
+    out = political_nlp(texts)
+    labels = [o['label'] for o in out]
+    scores = [-1 if l == "LABEL_0" else 1 if l == "LABEL_2" else 0 for l in labels]
+    return scores
+
+
+
 
 
 def calculate_ttr(text):
