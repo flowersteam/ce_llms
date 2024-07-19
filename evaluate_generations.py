@@ -73,11 +73,14 @@ print("Load and encode AI datasets")
 participant = "part_0"
 n_samples = 5
 n_generations = len(list(experiment_dir.glob("gen_[0-9]*")))
+print("N generations: ", n_generations)
 
 
 # Store datasets to avoid recomputing
+datasets_savepath = f'{eval_save_dir}/datasets.pkl'
+
 try:
-    with open(f'{eval_save_dir}/datasets.pkl', 'rb') as f:
+    with open(datasets_savepath, 'rb') as f:
         datasets = pickle.load(f)
     print(f"Loaded datasets from pickle")
 except:
@@ -89,9 +92,9 @@ except:
         ai_dataset = bert_embedder.add_bert_embeddings(ai_dataset)
         datasets.append(ai_dataset)
         #store to pickle
-        with open(f'{eval_save_dir}/datasets.pkl', 'wb') as f:
+        with open(datasets_savepath, 'wb') as f:
             pickle.dump(datasets, f)
-    print(f"Saved datasets to pickle")
+    print(f"Saved datasets to pickle: {datasets_savepath}")
 
 
 dataset_labels = human_dataset_labels + [f"AI gen {i}" for i in range(len(datasets)-len(human_dataset_labels))]
