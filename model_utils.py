@@ -9,6 +9,7 @@ from transformers import AutoModelForCausalLM, AutoTokenizer, BitsAndBytesConfig
 from trl import SFTTrainer, DataCollatorForCompletionOnlyLM
 from peft import prepare_model_for_kbit_training, get_peft_model, LoraConfig, PeftModel
 
+from unsloth import FastLanguageModel
 
 def secs_2_hms(s):
     minutes, seconds = divmod(s, 60)
@@ -53,7 +54,7 @@ def load_model(model_name, cache_dir):
     tokenizer = AutoTokenizer.from_pretrained(model_name, trust_remote_code=True, cache_dir=cache_dir)
     tokenizer.padding_side = 'right'
     # tokenizer.pad_token = tokenizer.eos_token
-    tokenizer.pad_token = tokenizer.unk_token
+    tokenizer.pad_token = tokenizer.unk_token  # no grads on pad_token
     print("Pad with unk token.")
     tokenizer.add_eos_token = True
 
@@ -91,34 +92,68 @@ def prepare_model_for_training(tokenizer, model, peft_config):
     return tokenizer, model
 
 
-def train_model(tokenizer, model, dataset, save_dir, instructions, peft_config=None, max_seq_length=256, train_args={}):
+def load_model(model_path, seed):
+    print(f"Loading the model from: {model_path}")
+
+    max_seq_length = 8192  # LLama3
+
+    model, tokenizer = FastLanguageModel.from_pretrained(
+        model_name=model_path,
+        max_seq_length=max_seq_length,  # Choose any! We auto support RoPE Scaling internally!
+        dtype=None,  # None for auto detection. Float16 for Tesla T4, V100, Bfloat16 for Ampere+
+        load_in_4bit=True,
+    )
+
+    if hasattr(model.config, "model_max_length"):
+        assert max_seq_length <= model.config.model_max_length
+    else:
+        assert max_seq_length <= model.config.max_position_embeddings
+
+    print("Patching the model")
+    model = FastLanguageModel.get_peft_model(
+        model,
+        r=16,  # Choose any number > 0 ! Suggested 8, 16, 32, 64, 128
+        target_modules=["q_proj", "k_proj", "v_proj", "o_proj", "gate_proj", "up_proj", "down_proj"],
+        lora_alpha=16,
+        lora_dropout=0,  # Supports any, but=0 is optimized
+        bias="none",  # Supports any, but="none" is optimized
+        use_gradient_checkpointing="unsloth",  # True or "unsloth" for very long context
+        random_state=seed,
+        use_rslora=False,  # We support rank stabilized LoRA
+        loftq_config=None,  # And LoftQ
+    )
+
+    return model, tokenizer
+
+response_template = "### Assistant:\n"
+chat_template = "### User:\n{}\n"+response_template+"{}"
+
+def train_model_unsloth(tokenizer, model, dataset, save_dir, instructions, max_seq_length=256, train_args={}):
 
     # format dataset for model
     def formatting_func(examples):
-        return {"text": [
-            tokenizer.apply_chat_template(
-                [
-                    {'role': 'user', 'content': random.choice(instructions)},
-                    {'role': 'assistant', 'content': " "+t},
-                ],
-                tokenize=False,
-                add_generation_prompt=False,
-            ) for t in examples['text']]}
+        return {
+            "text": [
+                chat_template.format(random.choice(instructions), " "+t) +
+                tokenizer.eos_token
+                for t in examples['text']
+            ]
+        }
 
     dataset = dataset.map(formatting_func, batched=True)
 
-    # Create the collator -> train only on generations
-    instruction_template = "[INST]"
-    response_template = "[/INST]"
     collator = DataCollatorForCompletionOnlyLM(
-        instruction_template=instruction_template,
         response_template=response_template,
         tokenizer=tokenizer,
         mlm=False
     )
 
+    # check that collator finds the response_template
+    assert collator([tokenizer(dataset['text'][0])])['labels'][0].unique().numel() > 1
 
-    training_arguments = TrainingArguments(output_dir=save_dir, **train_args)
+    training_arguments = TrainingArguments(
+        output_dir=save_dir, **train_args
+    )
 
     print("Training")
     # Setting sft parameters
@@ -126,17 +161,22 @@ def train_model(tokenizer, model, dataset, save_dir, instructions, peft_config=N
         model=model,
         args=training_arguments,
         train_dataset=dataset,
-        peft_config=peft_config,
-        # max_seq_length=None,
         max_seq_length=max_seq_length,
         tokenizer=tokenizer,
         dataset_text_field="text",
         data_collator=collator,
         packing=False,
+        dataset_num_proc=2,
     )
 
     train_result = trainer.train()
 
+    used_memory = round(torch.cuda.max_memory_reserved() / 1024 / 1024 / 1024, 3)
+    print(f"{train_result.metrics['train_runtime']} seconds used for training.")
+    print(f"{round(train_result.metrics['train_runtime'] / 60, 2)} minutes used for training.")
+    print(f"Peak reserved memory = {used_memory} GB.")
+
+    print("model was trained")
     # save the model
     metrics = train_result.metrics
     max_train_samples = train_result.global_step if train_result.global_step is not None else len(train_dataset)
@@ -168,30 +208,18 @@ def generate_data(
         deduplicate=False,
         generation_arguments={},
 ):
+    FastLanguageModel.for_inference(model)  # Enable native 2x faster inference
 
-    print(f"Generating {n_posts_to_generate} posts.")
-    model.eval()
-    model.config.use_cache = True
-    tokenizer.pad_token_id = tokenizer.eos_token_id
-    tokenizer.padding_side = "left"
-
-    # Prepare instructions
-    print("Preparing prompts")
-
-    prompts = [random.choice(instructions) for _ in range(np.minimum(batch_size, n_posts_to_generate))]
-
-    chats = [[{'role': 'user', 'content': prompt}] for prompt in prompts]
-
-    dataset = Dataset.from_dict({"chat": chats})
-    dataset = dataset.map(lambda x: {
-        "formatted_chat": tokenizer.apply_chat_template(x["chat"], tokenize=False, add_generation_prompt=True)
-    })
-    model_inputs = tokenizer(dataset["formatted_chat"], return_tensors="pt", padding=True, add_special_tokens=False).to("cuda")
-
-    # Generate text
-    print("Generating")
     s = time.time()
-    generated_ids = []
+
+    # Prepare inputs (instructions)
+    print("Preparing prompts")
+    prompts = [random.choice(instructions) for _ in range(np.minimum(batch_size, n_posts_to_generate))]
+    dataset = Dataset.from_dict({"instruction": instructions})
+    dataset = dataset.map(lambda x: {
+        "text": chat_template.format(x["instruction"], "")
+    })
+
     generated_texts = []
 
     for b_i in range(0, n_posts_to_generate, batch_size):
@@ -202,21 +230,30 @@ def generate_data(
             hours, minutes, seconds = secs_2_hms(eta)
             print("\tETA: %d:%02d:%02d" % (hours, minutes, seconds))
 
-        # generate posts
+        batch_indices = np.random.randint(0, len(dataset), batch_size)
+        batch = dataset.select(batch_indices)
+
+        model_inputs = tokenizer(
+            batch["text"],
+            return_tensors="pt", padding=True
+        ).to("cuda")
+
+        # Generate posts
         batch_gen_ids = model.generate(
             **model_inputs,
-            **generation_arguments,
+            **{
+                **generation_arguments,
+                **{"use_cache": True}
+            }
         )
-        generated_ids.append(batch_gen_ids)
 
-        # decode
         for inp, gen_ids in zip(model_inputs['input_ids'], batch_gen_ids):
             tx = tokenizer.decode(gen_ids[len(inp):], skip_special_tokens=True)
             generated_texts.append(tx)
 
     if deduplicate:
         generated_texts = list(set(generated_texts))
-        print(f"N posts after deduplication. {generated_texts}")
+        print(f"N posts after deduplication: {len(generated_texts)}")
 
     generation_time = time.time() - s
     print(f"Generation time: {generation_time}.")
@@ -236,5 +273,4 @@ def generate_data(
             print(f"Generated text saved in {generated_text_path}.")
 
     return generated_texts, {"generation_time": generation_time, "generation_save_path": str(generated_text_path)}
-
 
