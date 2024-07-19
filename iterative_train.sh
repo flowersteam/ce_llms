@@ -42,7 +42,6 @@ do
         --temp $temp \
         --generation $i \
         --deduplicate \
-        --unsloth \
         --seed 1 \
         --dataset-seed 1 \
 
