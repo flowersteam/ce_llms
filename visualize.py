@@ -3,6 +3,7 @@ import json
 import os
 
 from visualization_utils import *
+import pickle
 
 def load_results(directories):
     results = {}
@@ -15,6 +16,9 @@ def load_results(directories):
 
         with open(results_file, "r") as f:
             results[directory] = json.load(f)
+        
+       
+
 
     return results
 
@@ -24,13 +28,18 @@ def load_results(directories):
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Load a metric from multiple directories.")
-    parser.add_argument("directories", nargs="+", help="List of directories to search for results.json")
-    parser.add_argument("--metric", type=str, help="Name of the metric to load", default="cos_diversities", choices=[
-        'var_diversities', 'cos_diversities',
-        'logreg_loss', 'logreg_accuracy',
-        'mean_ttrs', 'mean_n_words', 'dataset_lens',
-        'ppls', 'positivity'
-    ])
+    parser.add_argument("--directories", nargs="+", help="List of directories to search for results.json")
+    parser.add_argument("--metric", nargs="+", help="List of the metrics to load")
+    parser.add_argument("--visualize-datasets", action="store_true")
+    parser.add_argument("--plot-2D", action="store_true")
+   
+    # , choices=[
+    #     'all',
+    #     'var_diversities', 'cos_diversities',
+    #     'logreg_loss', 'logreg_accuracy',
+    #     'mean_ttrs', 'mean_n_words', 'dataset_lens',
+    #     'ppls', 'positivity', 'political_bias', 'toxicity'
+    # ])
     parser.add_argument("--save-path", type=str, default=None)
     parser.add_argument("--no-show", action="store_true")
 
@@ -45,22 +54,37 @@ if __name__ == "__main__":
     dataset_labels = min(all_dataset_labels, key=len)
     n_datasets = len(dataset_labels)
 
-    dir_labels, metric_values = [], []
+    # Iterate over metrics passed as arguments
+    for metric in args.metric:
+        dir_labels, metric_values = [], []
+        for dir, res in all_results.items():
 
-    for dir, res in all_results.items():
+            dir_labels.append(dir)
+            
+    
+            if metric not in res:
+                raise ValueError(f"Metric {metric} not found in {dir}.")
 
-        dir_labels.append(dir)
+            metric_values.append(res[metric][:n_datasets])
+            save_path = args.save_path + f"_{metric}" if args.save_path else None
 
-        if args.metric not in res:
-            raise ValueError(f"Metric {args.metric} not found in {dir}.")
+            plot_and_save(
+                x=dataset_labels,   # shape (n_datasets)
+                ys=metric_values,  # shape (n_dirs, n_datasets)
+                labels=dir_labels,  # shape (n_dirs)
+                ylabel=metric,
+                save_path=save_path,
+                no_show=args.no_show,
+            )
 
-        metric_values.append(res[args.metric][:n_datasets])
 
-    plot_and_save(
-        x=dataset_labels,   # shape (n_datasets)
-        ys=metric_values,  # shape (n_dirs, n_datasets)
-        labels=dir_labels,  # shape (n_dirs)
-        ylabel=args.metric,
-        save_path=args.save_path,
-        no_show=args.no_show,
-    )
+    # By default the 2D plot is toxicity x political bias
+    if args.plot_2D:
+        for dir, res in all_results.items():
+
+            y1 = res["toxicity"][:n_datasets]
+            y2 = res["political_bias"][:n_datasets]
+            save_path = args.save_path
+
+            plot_2D(y1, y2, dir, save_path, args.no_show)
+            
