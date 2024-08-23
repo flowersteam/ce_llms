@@ -3,6 +3,7 @@ import os
 import argparse
 import datetime
 from pathlib import Path
+import hashlib
 
 from dataset_utils import *
 from model_utils import *
@@ -28,7 +29,7 @@ if __name__ == "__main__":
     parser.add_argument('--generation', "-g", type=int, default=0, help='generation of the model')
     parser.add_argument('--participant-id', "-i", type=int, default=0, help='participant id (e.g. index)')
     parser.add_argument('--exp-path', type=str, default=None)
-    parser.add_argument('--seed', type=int, default="1")
+    parser.add_argument('--seed', type=str, default="1")
     parser.add_argument('--dataset-seed', type=int, default="1")
 
     # Model
@@ -55,9 +56,13 @@ if __name__ == "__main__":
         args.exp_path = f"./results/test_model_{timestamp}"
 
     curr_generation_save_dir = Path(args.exp_path) / f"gen_{args.generation}" / f"part_{args.participant_id}"
-    os.makedirs(curr_generation_save_dir)
+    os.makedirs(curr_generation_save_dir, exist_ok=True)
 
     data_logs = {}
+
+    # parse string_seed to int
+    args.seed = int(hashlib.md5(args.seed.encode('utf-8')).hexdigest(), 16) % (2**32 - 1)
+
     # Load train data
     if args.generation == 0:
         print(f"Loading a human dataset, with seed {args.dataset_seed}")
@@ -76,10 +81,9 @@ if __name__ == "__main__":
             raise NotImplementedError(f"Undefined dataset {args.dataset}.")
 
     else:
-        print("Loading the previous dataset.")
-        prev_generation_save_dir = Path(args.exp_path) / f"gen_{args.generation - 1}" / f"part_{args.participant_id}"
-        prev_generation_generations_path = str(prev_generation_save_dir / "generations.csv")
-        train_dataset = load_dataset_from_csv(prev_generation_generations_path)
+        input_dataset_path = str(curr_generation_save_dir / "input_dataset.csv")
+        print(f"Loading the input dataset from : {input_dataset_path}")
+        train_dataset = load_dataset_from_csv(input_dataset_path)
 
     data_logs["dataset_size"] = len(train_dataset)
     print(f"Dataset size: ", data_logs["dataset_size"])

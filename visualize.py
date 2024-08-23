@@ -17,7 +17,7 @@ def load_results(directories):
         with open(results_file, "r") as f:
             results[directory] = json.load(f)
         
-       
+
 
 
     return results
@@ -61,7 +61,6 @@ if __name__ == "__main__":
 
             dir_labels.append(dir)
             
-    
             if metric not in res:
                 raise ValueError(f"Metric {metric} not found in {dir}.")
 
