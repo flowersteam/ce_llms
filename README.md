@@ -11,8 +11,8 @@ module load cudnn/8.9.7.29-cuda
 
 Create the conda env 
 ```
-conda create --name unsloth_env python=3.10
-conda activate unsloth_env
+conda create --name cellm python=3.10
+conda activate cellm
 ```
 
 Install unsloth
