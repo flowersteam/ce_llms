@@ -7,7 +7,7 @@ hostname = os.uname()[1]
 if hostname == "PTB-09003439":
     hf_cache_dir = "/home/flowers-user/.cache/huggingface"
 else:
-    hf_cache_dir = "/gpfsscratch/rech/imi/utu57ed/.cache/huggingface"
+    hf_cache_dir = os.environ["HF_HOME"]
 
 parser = argparse.ArgumentParser()
 parser.add_argument("--experiment-dir", type=str, required=True)

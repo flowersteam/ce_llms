@@ -1,5 +1,6 @@
 import numpy as np
 import os
+import time
 
 from nltk import word_tokenize
 
@@ -20,7 +21,7 @@ hostname = os.uname()[1]
 if hostname == "PTB-09003439":
     hf_cache_dir = "/home/flowers-user/.cache/huggingface"
 else:
-    hf_cache_dir = "/gpfsscratch/rech/imi/utu57ed/.cache/huggingface"
+    hf_cache_dir = os.environ["HF_HOME"]
     os.environ['TRANSFORMERS_OFFLINE'] = '1'
 
 os.environ['HF_HOME'] = hf_cache_dir
@@ -38,25 +39,67 @@ def get_positivity(text):
 # Predict toxicity using library from https://pypi.org/project/detoxify/
 toxicity_nlp = Detoxify('original')
 
-def get_toxicity_batch(texts):
-    out = toxicity_nlp.predict(texts)
-
-    return out['toxicity']
-
+def get_toxicity_batch(texts, batch_size=256):
+    out = []
+    for i in range(0, len(texts), batch_size):
+        print(f"{i}/{len(texts)}")
+        out += toxicity_nlp.predict(texts[i:i+batch_size])['toxicity']
+    return out
 
 
 ## Predict political bias using pretrained model from https://huggingface.co/premsa/political-bias-prediction-allsides-mDeBERTa
 # -1 = Lean Left, 0 = Center, 1 = Lean Right
-political_model = AutoModelForSequenceClassification.from_pretrained("premsa/political-bias-prediction-allsides-DeBERTa")
-political_tokenizer = AutoTokenizer.from_pretrained("premsa/political-bias-prediction-allsides-DeBERTa")
-political_nlp = pipeline("text-classification", model=political_model, tokenizer=political_tokenizer)
+# LABEL_0 (-1) = Left , LABEL_1 = Center (0), LABEL_2 (1) = Right
+# political_model = AutoModelForSequenceClassification.from_pretrained("premsa/political-bias-prediction-allsides-DeBERTa")
+# political_tokenizer = AutoTokenizer.from_pretrained("premsa/political-bias-prediction-allsides-DeBERTa")
+# political_nlp = pipeline("text-classification", model=political_model, tokenizer=political_tokenizer)
 
 
-def get_political_bias_batch(texts):
-    out = political_nlp(texts)
-    labels = [o['label'] for o in out]
-    scores = [-1 if l == "LABEL_0" else 1 if l == "LABEL_2" else 0 for l in labels]
-    return scores
+# zero-shot classifier
+political_nlp = pipeline(model="facebook/bart-large-mnli", task="zero-shot-classification", cache_dir=hf_cache_dir, device="cuda")
+hypothesis_template = "This is a post from a {}."
+candidate_labels = ["democrat", "republican"]
+
+
+
+
+def get_political_lean_batch(texts):
+    def data(d):
+        for i in range(len(d)):
+            yield d[i]
+
+    batch_size = 256
+
+    labels = []
+    scores = []
+
+    s = time.time()
+    for i, o in enumerate(political_nlp(
+            data(texts),
+            candidate_labels=candidate_labels, hypothesis_template=hypothesis_template,
+            batch_size=batch_size)
+    ):
+        if i % batch_size == 0:
+            print(f"[{i}/{len(texts)}]")
+
+        # (Left) -1 , 0, 1 (Right)
+        l = o['labels'][0]
+        l_ = -1 if l == "democrat" else 1 if l == "republican" else 0
+        labels.append(l_)
+        scores.append(o['scores'][0]*l_)
+
+    # for i, o in enumerate(political_nlp(data(texts), batch_size=batch_size)):
+    #     if i % batch_size == 0:
+    #         print(f"[{i}/{len(texts)}]")
+    #
+    #     l = o['label']
+    #     l_ = -1 if l == "LABEL_0" else 1 if l == "LABEL_2" else 0
+    #     labels.append(l_)
+    #     scores.append(o['score']*l_)
+
+    print("Elapsed Time:", time.time() - s)
+
+    return labels, scores
 
 
 
