@@ -17,7 +17,7 @@ hostname = os.uname()[1]
 if hostname == "PTB-09003439":
     hf_cache_dir = "/home/flowers-user/.cache/huggingface"
 else:
-    hf_cache_dir = "/gpfsscratch/rech/imi/utu57ed/.cache/huggingface"
+    hf_cache_dir = os.environ["HF_HOME"]
     os.environ['TRANSFORMERS_OFFLINE'] = '1'
 
 
@@ -30,7 +30,7 @@ if __name__ == "__main__":
     parser.add_argument('--participant-id', "-i", type=int, default=0, help='participant id (e.g. index)')
     parser.add_argument('--exp-path', type=str, default=None)
     parser.add_argument('--seed', type=str, default="1")
-    parser.add_argument('--dataset-seed', type=int, default="1")
+    parser.add_argument('--dataset-seed', type=str, default="1")
 
     # Model
     parser.add_argument('--model-name', type=str, default="mistralai/Mistral-7B-v0.1")
@@ -62,6 +62,7 @@ if __name__ == "__main__":
 
     # parse string_seed to int
     args.seed = int(hashlib.md5(args.seed.encode('utf-8')).hexdigest(), 16) % (2**32 - 1)
+    args.dataset_seed = int(hashlib.md5(args.dataset_seed.encode('utf-8')).hexdigest(), 16) % (2**32 - 1)
 
     # Load train data
     if args.generation == 0:

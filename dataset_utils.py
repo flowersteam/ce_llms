@@ -3,7 +3,12 @@ import re
 from datasets import load_dataset, ClassLabel, Dataset, load_from_disk
 from nltk import sent_tokenize, word_tokenize
 import csv
-import pandas as pd
+
+try:
+    import pandas as pd
+except:
+    ...
+
 # nltk.download("punkt")
 
 import torch
@@ -197,7 +202,7 @@ class BertEmbedder:
         self.bert_tokenizer = BertTokenizer.from_pretrained('bert-base-uncased')
         if torch.cuda.is_available():
             self.device = torch.device("cuda")
-        elif torch.has_mps:
+        elif torch.backends.mps.is_built():
             self.device = torch.device("mps")
         else:
             self.device = torch.device("cpu")

@@ -12,13 +12,15 @@ def load_results(directories):
 
         if not os.path.isfile(results_file):
             print(f"Error: {results_file} not found.")
-            return None
+            continue
 
         with open(results_file, "r") as f:
-            results[directory] = json.load(f)
-        
+            res = json.load(f)
 
+        if "political_lean_score" in res:
+            res["political_lean_score_std"] = [np.std(r) for r in res['political_lean_score']]
 
+        results[directory] = res
 
     return results
 
@@ -42,12 +44,14 @@ if __name__ == "__main__":
     # ])
     parser.add_argument("--save-path", type=str, default=None)
     parser.add_argument("--no-show", action="store_true")
+    parser.add_argument("--per-text", action="store_true")
 
     args = parser.parse_args()
 
     # load data
     all_results = load_results(args.directories)
 
+    print(f"Results found: {len(all_results)}")
     all_dataset_labels = [res['dataset_labels'] for res in all_results.values()]
 
     # take the shortest
@@ -74,15 +78,15 @@ if __name__ == "__main__":
                 ylabel=metric,
                 save_path=save_path,
                 no_show=args.no_show,
+                per_text=args.per_text,
             )
-
 
     # By default the 2D plot is toxicity x political bias
     if args.plot_2D:
         for dir, res in all_results.items():
 
             y1 = res["toxicity"][:n_datasets]
-            y2 = res["political_bias"][:n_datasets]
+            y2 = res["political_lean_score"][:n_datasets]
             save_path = args.save_path
 
             plot_2D(y1, y2, dir, save_path, args.no_show)

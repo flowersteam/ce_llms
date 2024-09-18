@@ -1,6 +1,7 @@
 import time
 from contextlib import contextmanager
 import matplotlib.pyplot as plt
+import matplotlib.colors as mcolors
 
 import numpy as np
 
@@ -22,21 +23,56 @@ def timer_block():
     print(f"Elapsed time: {elapsed_time:.2f} seconds")
 
 
-def plot_and_save(x, ys, labels, ylabel=None, save_path=None, yticks=None, no_show=True):
+def plot_and_save(x, ys, labels, ylabel=None, save_path=None, yticks=None, no_show=True, per_text=False):
 
     assert len(ys[0]) == len(x)
     assert len(labels) == len(ys)
 
-    for y, label in zip(ys, labels):
-        plt.plot(x, [np.mean(y[i]) for i in range(len(y))], label=label)
+    colors = list(mcolors.CSS4_COLORS.keys())
+    colors = ["red", "blue", "green", "black", "brown"] + colors[::-1]
 
-        #plot standard deviation
-        # plt.fill_between(x, [np.mean(y[i]) - np.std(y[i]) for i in range(len(y))], [np.mean(y[i]) + np.std(y[i]) for i in range(len(y))], alpha=0.2)
+    for y, label, col in zip(ys, labels, colors):
 
-        #plot standard error of the mean
-        plt.fill_between(x, [np.mean(y[i]) - np.std(y[i]) / np.sqrt(len(y[i])) for i in range(len(y))], [np.mean(y[i]) + np.std(y[i]) / np.sqrt(len(y[i])) for i in range(len(y))], alpha=0.2)
+        if per_text:
+            # per text
+            print("PER TEXT")
+            # todo: doesn't work with different size datasets -> fix
+            vp = plt.violinplot(y, showmeans=True)
 
-        
+            # Manually set the color
+            for body in vp['bodies']:
+                body.set_facecolor(col)
+                # body.set_edgecolor(col)
+                # body.set_alpha(0.2)  # Optionally set the transparency
+                body.set_alpha(1)
+
+            vp['cmeans'].set_color(col)
+            vp['cbars'].set_color(col)
+            vp['cmaxes'].set_color(col)
+            vp['cmins'].set_color(col)
+
+            ax = plt.gca()
+            ax.plot([], [], c=col, label=label)
+
+            ax.set_xticks(range(1, len(x) + 1))
+            ax.set_xticklabels(x)
+            # for gen_label, gen_y in zip(x, y):
+            #     plt.scatter([gen_label] * len(gen_y), gen_y, s=1)
+        else:
+            # # std
+            # plt.plot(x, [np.std(y[i]) for i in range(len(y))], label=label)
+            # ylabel = ylabel + "_std"
+
+            # mean
+            plt.plot(x, [np.mean(y[i]) for i in range(len(y))], label=label)
+            try:
+                # plot standard deviation
+                # plt.fill_between(x, [np.mean(y[i]) - np.std(y[i]) for i in range(len(y))], [np.mean(y[i]) + np.std(y[i]) for i in range(len(y))], alpha=0.2)
+
+                # plot standard error
+                plt.fill_between(x, [np.mean(y[i]) - np.std(y[i]) / np.sqrt(len(y[i])) for i in range(len(y))], [np.mean(y[i]) + np.std(y[i]) / np.sqrt(len(y[i])) for i in range(len(y))], alpha=0.2)
+            except:
+                ...
 
     if yticks:
         plt.yticks(yticks)
