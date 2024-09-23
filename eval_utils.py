@@ -86,7 +86,7 @@ def get_political_lean_batch(texts):
         l = o['labels'][0]
         l_ = -1 if l == "democrat" else 1 if l == "republican" else 0
         labels.append(l_)
-        scores.append(o['scores'][0]*l_)
+        scores.append((o['scores'][0]-0.5)*l_)
 
     # for i, o in enumerate(political_nlp(data(texts), batch_size=batch_size)):
     #     if i % batch_size == 0:

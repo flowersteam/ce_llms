@@ -47,8 +47,8 @@ def plot_and_save(x, ys, labels, ylabel=None, save_path=None, yticks=None, no_sh
             for body in vp['bodies']:
                 body.set_facecolor(col)
                 # body.set_edgecolor(col)
-                # body.set_alpha(0.2)  # Optionally set the transparency
-                body.set_alpha(1)
+                body.set_alpha(0.2)  # Optionally set the transparency
+                # body.set_alpha(1)
 
             vp['cmeans'].set_color(col)
             vp['cbars'].set_color(col)
@@ -68,7 +68,7 @@ def plot_and_save(x, ys, labels, ylabel=None, save_path=None, yticks=None, no_sh
             # ylabel = ylabel + "_std"
 
             # mean
-            plt.plot(x, [np.mean(y[i]) for i in range(len(y))], label=label)
+            plt.plot(x, [np.mean(y[i]) for i in range(len(y))], label=label, c=col)
             try:
                 # plot standard deviation
                 # plt.fill_between(x, [np.mean(y[i]) - np.std(y[i]) for i in range(len(y))], [np.mean(y[i]) + np.std(y[i]) for i in range(len(y))], alpha=0.2)
