@@ -11,6 +11,8 @@ texts = [
     "Enough with the immigrants!",
     "If you're gay just stay away from me!",
     "I don't care if you're gay but stay away from me!",
+    "I like apples.",
+    "Happy New Year!"
 ]
 
 # DeBertA

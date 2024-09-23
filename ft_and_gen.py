@@ -30,7 +30,7 @@ if __name__ == "__main__":
     parser.add_argument('--participant-id', "-i", type=int, default=0, help='participant id (e.g. index)')
     parser.add_argument('--exp-path', type=str, default=None)
     parser.add_argument('--seed', type=str, default="1")
-    parser.add_argument('--dataset-seed', type=str, default="1")
+    # parser.add_argument('--dataset-seed', type=str, default="1")
 
     # Model
     parser.add_argument('--model-name', type=str, default="mistralai/Mistral-7B-v0.1")
@@ -43,13 +43,12 @@ if __name__ == "__main__":
 
     # Dataset
     parser.add_argument('--dataset', type=str, default="twitter")
-    parser.add_argument('--load-n', type=int, default=4000)
     parser.add_argument('--gen-n', type=int, default=4000)
     parser.add_argument('--lean', type=str, default=None, choices=["Liberal", "Conservative"])
     parser.add_argument('--deduplicate', action="store_true", help='Deduplicate generated posts')
 
     args = parser.parse_args()
-    print(f"Gen: {args.generation} Part: {args.participant_id}")
+    print(f"Ft and Gen -> Gen: {args.generation} Part: {args.participant_id}")
 
     if args.exp_path is None:
         timestamp = datetime.datetime.now().strftime("%Y_%m_%d_%H_%M_%S")
@@ -62,29 +61,11 @@ if __name__ == "__main__":
 
     # parse string_seed to int
     args.seed = int(hashlib.md5(args.seed.encode('utf-8')).hexdigest(), 16) % (2**32 - 1)
-    args.dataset_seed = int(hashlib.md5(args.dataset_seed.encode('utf-8')).hexdigest(), 16) % (2**32 - 1)
+    # args.dataset_seed = int(hashlib.md5(args.dataset_seed.encode('utf-8')).hexdigest(), 16) % (2**32 - 1)
 
-    # Load train data
-    if args.generation == 0:
-        print(f"Loading a human dataset, with seed {args.dataset_seed}")
-
-        if args.dataset == "twitter":
-            train_dataset, _, _ = load_twitter_dataset(
-                cache_dir=hf_cache_dir, load_n=args.load_n, lean=args.lean, seed=args.dataset_seed)
-
-            d_ = train_dataset.map(remove_links, batched=True)
-
-        elif args.dataset == "reddit":
-            train_dataset, _, _ = load_reddit_dataset(
-                cache_dir=hf_cache_dir, load_n=args.load_n, lean=args.lean, seed=args.dataset_seed)
-
-        else:
-            raise NotImplementedError(f"Undefined dataset {args.dataset}.")
-
-    else:
-        input_dataset_path = str(curr_generation_save_dir / "input_dataset.csv")
-        print(f"Loading the input dataset from : {input_dataset_path}")
-        train_dataset = load_dataset_from_csv(input_dataset_path)
+    input_dataset_path = str(curr_generation_save_dir / "input_dataset.csv")
+    print(f"Loading the input dataset from : {input_dataset_path}")
+    train_dataset = load_dataset_from_csv(input_dataset_path)
 
     data_logs["dataset_size"] = len(train_dataset)
     print(f"Dataset size: ", data_logs["dataset_size"])

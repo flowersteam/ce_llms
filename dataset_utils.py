@@ -139,6 +139,24 @@ def remove_links(batch):
         re.sub(r'http\S+', '', t).rstrip() for t in batch['text']
     ]}
 
+def load_human_dataset(dataset_name=None, **kwargs):
+    if dataset_name is None:
+        raise ValueError("dataset_name is not provided")
+
+    if dataset_name == "twitter":
+        human_dataset, _, _ = load_twitter_dataset(**kwargs)
+        human_dataset = human_dataset.map(remove_links, batched=True)
+
+    elif dataset_name == "reddit":
+        human_dataset, _, _ = load_reddit_dataset(**kwargs)
+
+    else:
+        raise NotImplementedError(f"Undefined dataset {dataset_name}.")
+
+    return human_dataset
+
+
+
 
 def load_twitter_dataset(cache_dir=None, load_n=None, load_frac=1.0, lean=None, seed=1):
     dataset_name = "m-newhauser/senator-tweets"
@@ -146,9 +164,13 @@ def load_twitter_dataset(cache_dir=None, load_n=None, load_frac=1.0, lean=None, 
 
     feat_sentiment = ClassLabel(num_classes=2, names=["Liberal", "Conservative"])
 
+    # dataset_savepath = os.path.join(
+    #     cache_dir, "dataset_cache",
+    #     f"twitter_load_n_{load_n}_lean_{lean}_{get_current_file_hash()}.save"
+    # )
     dataset_savepath = os.path.join(
         cache_dir, "dataset_cache",
-        f"twitter_load_n_{load_n}_lean_{lean}_seed_{seed}_{get_current_file_hash()}.save"
+        f"twitter_lean_{lean}.save"
     )
 
     if os.path.exists(dataset_savepath):
@@ -160,7 +182,6 @@ def load_twitter_dataset(cache_dir=None, load_n=None, load_frac=1.0, lean=None, 
             "Democrat": "Liberal",
             "Republican": "Conservative"
         }
-
         # Prepare data
         dataset = load_dataset(dataset_name, cache_dir=cache_dir, split='train')
 
@@ -179,17 +200,19 @@ def load_twitter_dataset(cache_dir=None, load_n=None, load_frac=1.0, lean=None, 
 
         dataset = dataset.cast_column("Political Lean", feat_sentiment)
 
-        if load_n is not None:
-            load_frac = load_n / len(dataset)
-            dataset = dataset.train_test_split(test_size=1-load_frac, shuffle=True, seed=seed, stratify_by_column="Political Lean")['train']
-
-        elif load_frac != 1.0:
-            dataset = dataset.train_test_split(test_size=1-load_frac, shuffle=True, seed=seed, stratify_by_column="Political Lean")['train']
-
-        dataset = dataset.remove_columns(["embeddings"])
-
         # save dataset
         dataset.save_to_disk(dataset_savepath)
+        print(f"Dataset saved to: {dataset_savepath}")
+
+    if load_n is not None:
+        load_frac = load_n / len(dataset)
+        dataset = dataset.train_test_split(test_size=1-load_frac, shuffle=True, seed=seed, stratify_by_column="Political Lean")['train']
+        # dataset_ = dataset.train_test_split(test_size=1-load_frac, shuffle=True, seed=seed, stratify_by_column="Political Lean")['test']
+
+    elif load_frac != 1.0:
+        dataset = dataset.train_test_split(test_size=1-load_frac, shuffle=True, seed=seed, stratify_by_column="Political Lean")['train']
+
+    dataset = dataset.remove_columns(["embeddings"])
 
     labels = dataset['Political Lean']
 
