@@ -33,7 +33,7 @@ if __name__ == "__main__":
     parser.add_argument("--directories", nargs="+", help="List of directories to search for results.json")
     parser.add_argument("--metric", nargs="+", help="List of the metrics to load")
     parser.add_argument("--visualize-datasets", action="store_true")
-    parser.add_argument("--plot-2D", action="store_true")
+    parser.add_argument("--plot-2D", nargs="+", help="Plot 2D graph of the metrics", default=None)
    
     # , choices=[
     #     'all',
@@ -53,6 +53,7 @@ if __name__ == "__main__":
 
     print(f"Results found: {len(all_results)}")
     all_dataset_labels = [res['dataset_labels'] for res in all_results.values()]
+    print(all_dataset_labels)
 
     # take the shortest
     dataset_labels = min(all_dataset_labels, key=len)
@@ -71,23 +72,37 @@ if __name__ == "__main__":
             metric_values.append(res[metric][:n_datasets])
             save_path = args.save_path + f"_{metric}" if args.save_path else None
 
-            plot_and_save(
-                x=dataset_labels,   # shape (n_datasets)
-                ys=metric_values,  # shape (n_dirs, n_datasets)
-                labels=dir_labels,  # shape (n_dirs)
-                ylabel=metric,
-                save_path=save_path,
-                no_show=args.no_show,
+        plot_and_save(
+            x=dataset_labels,   # shape (n_datasets)
+            ys=metric_values,  # shape (n_dirs, n_datasets)
+            labels=dir_labels,  # shape (n_dirs)
+            ylabel=metric,
+            save_path=save_path,
+            no_show=args.no_show,
                 per_text=args.per_text,
-            )
+        )
+        # if metric != 'political_bias':
+        for i in range(len(metric_values)):
+
+            if metric == 'political_bias':
+                print("Political bias")
+                print(metric_values[i])
+            
+            plot_metric_distributions(metric_values[i], metric, dir_labels[i],  args.no_show)
 
     # By default the 2D plot is toxicity x political bias
     if args.plot_2D:
+        assert len(args.plot_2D) == 2, "Please provide exactly 2 metrics to plot in 2D."
+
+        y1s, y2s = [], []
         for dir, res in all_results.items():
 
-            y1 = res["toxicity"][:n_datasets]
-            y2 = res["political_lean_score"][:n_datasets]
+            y1 = res[args.plot_2D[0]][:n_datasets]
+            y2 = res[args.plot_2D[1]][:n_datasets]
             save_path = args.save_path
+            y1s.append(y1)
+            y2s.append(y2)
 
-            plot_2D(y1, y2, dir, save_path, args.no_show)
+
+        plot_2D(y1s, y2s, dir_labels, save_path, args.no_show, ylabel=args.plot_2D[1], xlabel=args.plot_2D[0])
             
