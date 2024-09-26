@@ -1,8 +1,11 @@
+import json
 import os
 import re
 from datasets import load_dataset, ClassLabel, Dataset, load_from_disk
 from nltk import sent_tokenize, word_tokenize
 import csv
+
+from tqdm import trange
 
 try:
     import pandas as pd
@@ -51,6 +54,76 @@ def save_texts_to_csv(texts, filename):
         writer.writerow(['text'])  # Write the header
         for text in texts:
             writer.writerow([text])  # Write each text as a row
+
+
+def load_news_dataset(cache_dir=None, load_n=None, load_frac=1.0, lean=None, seed=1):
+    dataset_folder = "./data/news_dataset/"
+    print(f"Loading news dataset from {dataset_folder}")
+
+    feat_sentiment = ClassLabel(num_classes = 2, names=["Liberal", "Conservative"])
+
+    # dataset_savepath = os.path.join(
+    #     cache_dir, "dataset_cache", f"news_load_n_{load_n}_lean_{lean}_seed_{seed}_{get_current_file_hash()}.save"
+    # )
+
+    dataset_savepath = os.path.join(
+        "data", "dataset_cache", f"news_load_n_{load_n}_lean_{lean}_seed_{seed}.save"
+    )
+
+    if os.path.exists(dataset_savepath):
+        print(f"Loading dataset from cache in: {dataset_savepath}")
+        dataset = load_from_disk(dataset_savepath)
+    
+    else:
+        print(f"path {dataset_savepath} does not exist")
+        print("Loading dataset from files")
+
+        bias_2_lean = {
+            'left': 'Conservative',
+             'right': 'Liberal',
+        }
+            
+        files = [f for f in os.listdir(dataset_folder) if f.endswith(".json")]
+
+        # Initialize an empty list to store data
+        data = {"text": [], "Political Lean": []}
+
+        for filename in trange(len(files)):
+
+            file_path = os.path.join(dataset_folder, files[filename])
+            with open(file_path, "r") as f:
+                entry = json.load(f)
+                content = entry['content']
+                bias = entry['bias_text']
+                if bias in ['left', 'right']:
+                    data["text"].append(content)
+                    data["Political Lean"].append(bias_2_lean[bias])
+
+        # Create the dataset
+        dataset = Dataset.from_dict(data)
+        print (f"Dataset size: {len(dataset)}")
+
+
+        if lean:
+            print('Filtering')
+            dataset = dataset.filter(lambda examples: [p == lean for p in examples['Political Lean']], batched=True)
+
+        if load_n is not None:
+
+            load_frac = load_n / len(dataset)
+            dataset = dataset.train_test_split(test_size=1-load_frac, shuffle=True, seed=seed, stratify_by_column="Political Lean")['train']
+
+        elif load_frac != 1.0:
+            dataset = dataset.train_test_split(test_size=1-load_frac, shuffle=True, seed=seed, stratify_by_column="Political Lean")['train']
+
+        # save dataset
+        print (f"Dataset size: {len(dataset)}")
+
+        dataset.save_to_disk(dataset_savepath)
+
+    labels = dataset['Political Lean']
+
+    return dataset, labels, feat_sentiment
 
 
 def load_reddit_dataset(cache_dir=None, load_n=None, load_frac=1.0, lean=None, seed=1):
@@ -108,7 +181,7 @@ def load_reddit_dataset(cache_dir=None, load_n=None, load_frac=1.0, lean=None, s
         dataset = dataset.filter(lambda examples: [len(word_tokenize(t)) > 4 for t in examples['text']], batched=True)
 
         # stratify
-        dataset = dataset.cast_column("Political Lean", feat_sentiment)
+        # dataset = dataset.cast_column("Political Lean", feat_sentiment)
 
         if load_n is not None:
             load_frac = load_n / len(dataset)
@@ -121,6 +194,7 @@ def load_reddit_dataset(cache_dir=None, load_n=None, load_frac=1.0, lean=None, s
         dataset = dataset.remove_columns(["Text", "Title"])
 
         # save dataset
+        print (f"Saving dataset to {dataset_savepath}")
         dataset.save_to_disk(dataset_savepath)
 
     labels = dataset['Political Lean']
@@ -129,6 +203,7 @@ def load_reddit_dataset(cache_dir=None, load_n=None, load_frac=1.0, lean=None, s
 
 
 def load_dataset_from_csv(filename):
+
     print(f"Loading dataset from {filename}")
     df = pd.read_csv(filename, keep_default_na=False)
     return Dataset.from_pandas(df)
@@ -150,6 +225,9 @@ def load_human_dataset(dataset_name=None, **kwargs):
     elif dataset_name == "reddit":
         human_dataset, _, _ = load_reddit_dataset(**kwargs)
 
+    elif dataset_name == "news":
+        human_dataset, _, _ = load_news_dataset(**kwargs)
+
     else:
         raise NotImplementedError(f"Undefined dataset {dataset_name}.")
 
@@ -158,7 +236,7 @@ def load_human_dataset(dataset_name=None, **kwargs):
 
 
 
-def load_twitter_dataset(cache_dir=None, load_n=None, load_frac=1.0, lean=None, seed=1):
+def load_twitter_dataset(cache_dir='data', load_n=None, load_frac=1.0, lean=None, seed=1):
     dataset_name = "m-newhauser/senator-tweets"
     print(f"Loading dataset {dataset_name}")
 
@@ -178,6 +256,7 @@ def load_twitter_dataset(cache_dir=None, load_n=None, load_frac=1.0, lean=None, 
         dataset = load_from_disk(dataset_savepath)
 
     else:
+        print("Loading dataset from Huggingface")
         party_2_lean = {
             "Democrat": "Liberal",
             "Republican": "Conservative"
@@ -198,7 +277,7 @@ def load_twitter_dataset(cache_dir=None, load_n=None, load_frac=1.0, lean=None, 
             }, batched=True
         )
 
-        dataset = dataset.cast_column("Political Lean", feat_sentiment)
+        # dataset = dataset.cast_column("Political Lean", feat_sentiment)
 
         # save dataset
         dataset.save_to_disk(dataset_savepath)
@@ -239,6 +318,10 @@ class BertEmbedder:
             encoded_input = {k: v.to(self.device) for k, v in encoded_input.items()}
             output = self.bert_model(**encoded_input)
             embeddigs = output['last_hidden_state'][:, 0, :]  # we take the representation of the [CLS] token
+            if self.device == torch.device("mps"):
+                torch.mps.empty_cache()
+            elif self.device == torch.device("cuda"):
+                torch.cuda.empty_cache()
             return {"embeddings": list(embeddigs)}
 
         return dataset.map(bert_embed_text, batched=True, batch_size=128)
