@@ -17,16 +17,16 @@ conda activate llm_ce
 
 case $SLURM_ARRAY_TASK_ID in
   0)
-    python evaluate_generations.py --experiment-dir dev_results/human_data_ratio_particiapnts_2_generated_dataset_size_1000_human_dataset_size_3000/seed_3_2024-09-05_18-00-24
+    python evaluate_generations.py --ppl --experiment-dir dev_results/new_human_data_ratio_particiapnts_2_generated_dataset_size_2000_human_dataset_size_6000/seed_3_2024-09-23_22-09-53
     ;;
   1)
-    python evaluate_generations.py --experiment-dir dev_results/human_data_ratio_particiapnts_2_generated_dataset_size_2000_human_dataset_size_2000/seed_2_2024-09-05_18-00-24
+    python evaluate_generations.py --ppl --experiment-dir dev_results/new_human_data_ratio_particiapnts_2_generated_dataset_size_4000_human_dataset_size_4000/seed_2_2024-09-23_22-09-53
     ;;
   2)
-    python evaluate_generations.py --experiment-dir dev_results/human_data_ratio_particiapnts_2_generated_dataset_size_3000_human_dataset_size_1000/seed_1_2024-09-05_18-00-24
+    python evaluate_generations.py --ppl --experiment-dir dev_results/new_human_data_ratio_particiapnts_2_generated_dataset_size_6000_human_dataset_size_2000/seed_1_2024-09-23_22-09-53
     ;;
   3)
-    python evaluate_generations.py --experiment-dir dev_results/human_data_ratio_particiapnts_2_generated_dataset_size_4000_human_dataset_size_0/seed_0_2024-09-05_17-58-52
+    python evaluate_generations.py --ppl --experiment-dir dev_results/new_human_data_ratio_particiapnts_2_generated_dataset_size_8000_human_dataset_size_0/seed_0_2024-09-23_22-09-53
     ;;
   *)
     echo "Error: SLURM_ARRAY_TASK_ID ($SLURM_ARRAY_TASK_ID) is not recognized."

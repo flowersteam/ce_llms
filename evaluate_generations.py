@@ -46,21 +46,7 @@ for participant in ["part_0", "part_1"]:
 
     gen_0_part_0_dataset = json.loads((experiment_dir / "gen_0" / "part_0" / "log.json").read_text(encoding="UTF-8"))['args']['dataset']
     assert gen_0_part_0_dataset == "twitter"
-    gen_0_part_0_dataset = json.loads((experiment_dir / "gen_0" / "part_0" / "log.json").read_text(encoding="UTF-8"))['args']['dataset']
-    assert gen_0_part_0_dataset == "twitter"
 
-    if args.human_dataset:
-        # Load and encode human dataset
-        print("Load and encode human dataset")
-        # human dataset
-        print("Loading human dataset")
-        human_dataset, _, feat_sentiment = load_twitter_dataset(cache_dir=hf_cache_dir, load_n=4000)
-        print("Encoding human dataset")
-        human_dataset = bert_embedder.add_bert_embeddings(human_dataset)
-        #
-        human_dataset = human_dataset.sort('Political Lean')
-        human_dataset_labels = ["Human"]
-        datasets = [human_dataset]
     if args.human_dataset:
         # Load and encode human dataset
         print("Load and encode human dataset")
@@ -87,10 +73,9 @@ for participant in ["part_0", "part_1"]:
         # human_dataset_rep = human_dataset.filter(lambda ex: ex['Political Lean'] == 1)
         # human_dataset_labels = ["Human Dem", "Human Rep"]
         # datasets = [human_dataset_dem, human_dataset_rep]
-    
 
 
-    print("Load and encode AI datasets")
+
     print("Load and encode AI datasets")
 
     n_samples = 5
@@ -121,14 +106,7 @@ for participant in ["part_0", "part_1"]:
 
 
     dataset_labels = human_dataset_labels + [f"AI gen {i}" for i in range(len(datasets)-len(human_dataset_labels))]
-    dataset_labels = human_dataset_labels + [f"AI gen {i}" for i in range(len(datasets)-len(human_dataset_labels))]
 
-    # Show random samples
-    for lab, d in zip(dataset_labels, datasets):
-        print(f"{lab} random samples")
-        samples = d.shuffle().select(range(n_samples))
-        for sample in samples:
-            print("\tSample:", sample['text'])
     # Show random samples
     for lab, d in zip(dataset_labels, datasets):
         print(f"{lab} random samples")
@@ -138,25 +116,17 @@ for participant in ["part_0", "part_1"]:
 
 
     # Evaluate Metrics
-    # Evaluate Metrics
-
-    results = defaultdict(list)
-    results["dataset_labels"] = dataset_labels
     results = defaultdict(list)
     results["dataset_labels"] = dataset_labels
 
     if args.ppl:
-        ppl_model = 'mistralai/Mistral-7B-v0.1'
-        ppl_metric = Perplexity(ppl_model)
-    if args.ppl:
-        ppl_model = 'mistralai/Mistral-7B-v0.1'
+        ppl_model = 'mistralai/Mistral-7B-v0.3'
         ppl_metric = Perplexity(ppl_model)
 
     for i, d in enumerate(datasets):
         print(f'datasets {i}/{len(datasets)}')
         embs = np.array(d['embeddings'])
 
-        ## Storing full data to avoid recomputing each time
         ## Storing full data to avoid recomputing each time
 
 
@@ -183,26 +153,9 @@ for participant in ["part_0", "part_1"]:
             with open(f'{eval_save_dir}/cos_diversities_gen{i}.pickle', 'wb') as f:
                 pickle.dump(cos_diversities, f)
             print(f"Saved cos_diversities to pickle")
-        try:
-            with open(f'{eval_save_dir}/cos_diversities_gen{i}.pickle', 'rb') as f:
-                cos_diversities = pickle.load(f)
-            print(f"Loaded cos_diversities from pickle")
-        except:
-            cos_diversities = compute_cos_diveristy(embs)
-            #store to pickle
-            with open(f'{eval_save_dir}/cos_diversities_gen{i}.pickle', 'wb') as f:
-                pickle.dump(cos_diversities, f)
-            print(f"Saved cos_diversities to pickle")
 
         results['cos_diversities'].append(cos_diversities)
 
-        if args.human_dataset:
-            loss, acc = fit_logreg(
-                np.array(human_dataset['embeddings']),
-                embs, max_iter=100
-            )
-            results['logreg_loss'].append(loss)
-            results['logreg_accuracy'].append(acc)
         if args.human_dataset:
             loss, acc = fit_logreg(
                 np.array(human_dataset['embeddings']),
@@ -273,7 +226,6 @@ for participant in ["part_0", "part_1"]:
             print(f"Saved toxicity to pickle")
 
         results['toxicity'].append(toxicity)
-        results['toxicity'].append(toxicity)
 
         try:
             with open(f'{eval_save_dir}/political_lean_gen{i}.pickle', 'rb') as f:
@@ -296,9 +248,23 @@ for participant in ["part_0", "part_1"]:
         results['political_lean_score'].append(political_lean_scores)
 
         if args.ppl:
-            results['ppls'].append(ppl_metric.evaluate(d['text'], bs=500))
-        if args.ppl:
-            results['ppls'].append(ppl_metric.evaluate(d['text'], bs=500))
+            try:
+                assert 1 == 2
+                with open(f'{eval_save_dir}/ppl{i}.pickle', 'rb') as f:
+                    ppl = pickle.load(f)
+
+                print(f"Loaded political_bias from pickle")
+
+            except:
+                print(f"computing perplexity")
+                ppl = ppl_metric.evaluate(d['text'], bs=128)
+
+                with open(f'{eval_save_dir}/ppl{i}.pickle', 'wb') as f:
+                    pickle.dump(ppl, f)
+                print(f"Saved perplexity to pickle")
+                print(ppl)
+
+                results['ppls'].append(ppl_metric.evaluate(d['text'], bs=128))
 
     results_path = eval_save_dir / 'results.json'
     os.makedirs(results_path.parent, exist_ok=True)
@@ -307,7 +273,5 @@ for participant in ["part_0", "part_1"]:
 
     print(f'Metrics saved to: {results_path}')
 
-    if args.visualize_datasets:
-        visualize_datasets(datasets, dataset_labels, experiment_tag)
     if args.visualize_datasets:
         visualize_datasets(datasets, dataset_labels, experiment_tag)
