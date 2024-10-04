@@ -174,10 +174,9 @@ class Perplexity:
             torch_dtype=torch.bfloat16,
             device_map="auto",
             trust_remote_code=True,
-            cache_dir=hf_cache_dir,
         ).eval()
 
-        self.tokenizer = AutoTokenizer.from_pretrained(self.model_id, cache_dir=hf_cache_dir)
+        self.tokenizer = AutoTokenizer.from_pretrained(self.model_id)
         self.tokenizer.padding_side = 'right'
         self.tokenizer.pad_token = self.tokenizer.unk_token
         self.tokenizer.add_eos_token = True
@@ -196,18 +195,6 @@ class Perplexity:
 
         final_loss = np.sum(losses) / len(texts)
 
-        return np.exp(final_loss)
-
-    def evaluate_no_batch(self, texts):
-
-        ppls = []
-        with torch.no_grad():
-            for txt in texts:
-                inputs = self.tokenizer(txt, return_tensors="pt", padding=True)
-                loss = self.model(input_ids=inputs["input_ids"].to(self.model.device), labels=inputs["input_ids"]).loss
-                ppls.append(float(torch.exp(loss)))
-
-        return np.mean(ppls)
-
+        return float(np.exp(final_loss))
 
 

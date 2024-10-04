@@ -42,6 +42,11 @@ def plot_and_save(x, ys, labels, ylabel=None, save_path=None, yticks=None, no_sh
             # per text
             print("PER TEXT")
             # todo: doesn't work with different size datasets -> fix
+            if any(np.abs(np.concatenate(y)) > 0.5):
+                # todo: this is here for backwards compatibility (remove when it's no longer needed)
+                # before fix [-1,-0.5] U [0.5, 1] ->> [-0.5, 0.5]
+                y = [list(y_ - np.sign(y_) * 0.5) for y_ in y]
+
             vp = plt.violinplot(y, showmeans=True)
 
 
