@@ -169,7 +169,7 @@ done
 conda activate eval_311
 
 for part_i in $(seq 0 $((n_part-1))); do
-  python evaluate_generations.py --emb --tox --experiment-dir $exp_path --participants part_${part_i}
+  python evaluate_generations.py --emb --tox --experiment-dir $exp_path --participant part_${part_i}
 done
 
 end_time=$(date +%s)
