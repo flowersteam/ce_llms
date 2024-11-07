@@ -113,7 +113,8 @@ if __name__ == "__main__":
                 top_p=args.top_p,  # 0.9
                 repetition_penalty=args.repetition_penalty,  # 1.15
                 do_sample=True,
-            )
+            ),
+            seed=args.seed
         )
 
     if args.deduplicate:
