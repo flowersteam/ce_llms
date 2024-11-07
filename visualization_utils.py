@@ -13,11 +13,10 @@ from sklearn.manifold import TSNE
 import umap
 import os
 from scipy.spatial import ConvexHull
+from scipy.stats import sem
 import imageio
 import seaborn as sns
 from dataset_utils import load_twitter_dataset
-
-
 
 
 @contextmanager
@@ -28,30 +27,25 @@ def timer_block():
     print(f"Elapsed time: {elapsed_time:.2f} seconds")
 
 
-def plot_and_save(x, ys, labels, ylabel=None, save_path=None, yticks=None, no_show=True, per_text=False):
+def plot_and_save(
+        ys,
+        labels,
+        ylabel=None, xlabel=None, yticks=None,
+        violin=False, linewidths=None, colors=None, fontsize=10, log=False,
+        save_path=None, no_show=True,
+        assert_n_datapoints=None
+):
 
-    assert len(ys[0]) == len(x)
     assert len(labels) == len(ys)
+    plt.figure(figsize=(15, 10))
 
-    colors = list(mcolors.CSS4_COLORS.keys())
-    colors = ["red", "blue", "green", "black", "brown"] + colors[::-1]
+    for y, label, col, lw in zip(ys, labels, colors, linewidths):
 
-    for y, label, col in zip(ys, labels, colors):
+        xs = sorted(y.keys())  # e.g. generations / ratios
 
-        if per_text:
+        if violin:
             # per text
-            print("PER TEXT")
-            # todo: doesn't work with different size datasets -> fix
-            if any(np.abs(np.concatenate(y)) > 0.5):
-                # todo: this is here for backwards compatibility (remove when it's no longer needed)
-                # before fix [-1,-0.5] U [0.5, 1] ->> [-0.5, 0.5]
-                y = [list(y_ - np.sign(y_) * 0.5) for y_ in y]
-
-            vp = plt.violinplot(y, showmeans=True)
-
-
-
-
+            vp = plt.violinplot([y[g] for g in xs], showmeans=True)
 
             # Manually set the color
             for body in vp['bodies']:
@@ -68,35 +62,34 @@ def plot_and_save(x, ys, labels, ylabel=None, save_path=None, yticks=None, no_sh
             ax = plt.gca()
             ax.plot([], [], c=col, label=label)
 
-            ax.set_xticks(range(1, len(x) + 1))
-            ax.set_xticklabels(x)
-            # for gen_label, gen_y in zip(x, y):
-            #     plt.scatter([gen_label] * len(gen_y), gen_y, s=1)
+            ax.set_xticks(range(1, len(xs) + 1))
+            ax.set_xticklabels(xs)
+
         else:
-            # # std
-            # plt.plot(x, [np.std(y[i]) for i in range(len(y))], label=label)
-            # ylabel = ylabel + "_std"
+            # y = (generation -> n_seeds)
+            # (n_generations)
+            mean_ys = np.array([np.mean(y[x]) for x in xs])
+            sems_ys = np.array([sem(y[x]) for x in xs])
+            if assert_n_datapoints:
+                assert set(map(len, y.values())) == {assert_n_datapoints}
 
-            # mean
-            plt.plot(x, [np.mean(y[i]) for i in range(len(y))], label=label, c=col)
-            try:
-                # plot standard deviation
-                # plt.fill_between(x, [np.mean(y[i]) - np.std(y[i]) for i in range(len(y))], [np.mean(y[i]) + np.std(y[i]) for i in range(len(y))], alpha=0.2)
-
-                # plot standard error
-                plt.fill_between(x, [np.mean(y[i]) - np.std(y[i]) / np.sqrt(len(y[i])) for i in range(len(y))], [np.mean(y[i]) + np.std(y[i]) / np.sqrt(len(y[i])) for i in range(len(y))], alpha=0.2)
-            except:
-                ...
+            plt.plot(xs, mean_ys, label=label, c=col, linewidth=lw)
+            plt.fill_between(xs, mean_ys-sems_ys, mean_ys+sems_ys, alpha=0.2, color=col)
 
     if yticks:
         plt.yticks(yticks)
 
+    if log:
+        plt.gca().set_yscale('log')
+    plt.yticks(fontsize=fontsize)
+
     if ylabel:
-        plt.ylabel(ylabel)
+        plt.ylabel(ylabel, fontsize=fontsize)
 
-    plt.legend()
+    if xlabel:
+        plt.xlabel(xlabel, fontsize=fontsize)
 
-    
+    plt.legend(fontsize=fontsize, loc="upper left")
 
     if save_path:
         plt.savefig(save_path+".png", dpi=300)
@@ -302,13 +295,13 @@ def plot_metric_distributions(metric_data, metric_name, saving_name, dataset = '
        
         for gen in range(len(metric_data)):
 
-            print(f"Generation {gen}")
+            # print(f"Generation {gen}")
             #print(metric_data[gen])
-            print(np.array(metric_data[gen]).shape)
+            # print(np.array(metric_data[gen]).shape)
 
             ridge_data.append(pd.DataFrame({
-                "Value": metric_data[gen],
-                "Generation": gen
+                "Value": [metric_data[gen]],
+                "Generation": [gen]
                 
             }))
         
