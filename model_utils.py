@@ -1,3 +1,5 @@
+import warnings
+
 import numpy as np
 import time
 import jsonlines
@@ -5,11 +7,23 @@ import torch
 import random
 
 from datasets import Dataset
-from transformers import AutoModelForCausalLM, AutoTokenizer, BitsAndBytesConfig,HfArgumentParser,TrainingArguments, pipeline, logging, DataCollatorForLanguageModeling, DataCollatorWithPadding
-from trl import SFTTrainer, DataCollatorForCompletionOnlyLM
-from peft import prepare_model_for_kbit_training, get_peft_model, LoraConfig, PeftModel
 
-from unsloth import FastLanguageModel
+from transformers import AutoModelForCausalLM, AutoTokenizer, BitsAndBytesConfig, TrainingArguments
+
+try:
+    from trl import SFTTrainer, DataCollatorForCompletionOnlyLM
+    from peft import prepare_model_for_kbit_training, get_peft_model, LoraConfig, PeftModel
+    from unsloth import FastLanguageModel
+except:
+    warnings.warn("Packages for unsloth inference were not installed.")
+    pass
+
+try:
+    from vllm import LLM, SamplingParams
+    from vllm.lora.request import LoRARequest
+except:
+    warnings.warn("Packages for vllm inference were not installed.")
+    pass
 
 def secs_2_hms(s):
     minutes, seconds = divmod(s, 60)
@@ -17,130 +31,59 @@ def secs_2_hms(s):
     return hours, minutes, seconds
 
 
-def load_finetuned_model_with_adapters(model_path, bnb_config=None, cache_dir=None):
-    print("Loading from : ", model_path)
-
-    lora_config = LoraConfig.from_pretrained(model_path)
-
-    base_model = lora_config.base_model_name_or_path
-
-    if bnb_config is None:
-        bnb_config = BitsAndBytesConfig(
-            load_in_4bit=True,
-            bnb_4bit_quant_type="nf4",
-            bnb_4bit_compute_dtype=torch.bfloat16,
-            bnb_4bit_use_double_quant=False,
-        )
-
-    model = AutoModelForCausalLM.from_pretrained(
-        base_model,
-        quantization_config=bnb_config,
-        torch_dtype=torch.bfloat16,
-        device_map="auto",
-        trust_remote_code=True,
-        cache_dir=cache_dir
-    )
-    model = prepare_model_for_kbit_training(model)
-    model = PeftModel.from_pretrained(model, model_path)
-    tokenizer = AutoTokenizer.from_pretrained(
-        lora_config.base_model_name_or_path, trust_remote_code=True, cache_dir=cache_dir)
-    return model, tokenizer
-
-
-def load_model(model_name, cache_dir):
-    # assert model_name == "mistralai/Mistral-7B-v0.1"
-
-    # LOAD TOKENIZER
-    tokenizer = AutoTokenizer.from_pretrained(model_name, trust_remote_code=True, cache_dir=cache_dir)
-    tokenizer.padding_side = 'right'
-    # tokenizer.pad_token = tokenizer.eos_token
-    tokenizer.pad_token = tokenizer.unk_token  # no grads on pad_token
-    print("Pad with unk token.")
-    tokenizer.add_eos_token = True
-
-    # LOAD MODEL
-    # bnb_config=None
-    bnb_config = BitsAndBytesConfig(
-        load_in_4bit=True,
-        bnb_4bit_quant_type="nf4",
-        bnb_4bit_compute_dtype=torch.bfloat16,
-        bnb_4bit_use_double_quant=False,
-    )
-    model = AutoModelForCausalLM.from_pretrained(
-        model_name,
-        quantization_config=bnb_config,
-        torch_dtype=torch.bfloat16,
-        device_map="auto",
-        trust_remote_code=True,
-        cache_dir=cache_dir,
-        # attn_implementation="flash_attention_2",
-    )
-
-    return tokenizer, model
-
-
-def prepare_model_for_training(tokenizer, model, peft_config):
-    # prepare for training
-    model.config.use_cache = False  # silence the warnings. Please re-enable for inference!
-    model.config.pretraining_tp = 1
-    model.gradient_checkpointing_enable()
-    model = prepare_model_for_kbit_training(model)
-
-    # add adapters
-    model = get_peft_model(model, peft_config)
-    model.print_trainable_parameters()
-    return tokenizer, model
-
-
-def load_model(model_path, seed):
+def load_model(model_path, seed, r=16, alpha=16, use_rslora=False, load_in_4bit=True, max_model_len=2048):
     print(f"Loading the model from: {model_path}")
+    s = time.time()
 
-    max_seq_length = 8192  # LLama3
+    assert ("4bit" in model_path) == load_in_4bit
 
     model, tokenizer = FastLanguageModel.from_pretrained(
         model_name=model_path,
-        max_seq_length=max_seq_length,  # Choose any! We auto support RoPE Scaling internally!
+        max_seq_length=max_model_len,  # Choose any! We auto support RoPE Scaling internally!
         dtype=None,  # None for auto detection. Float16 for Tesla T4, V100, Bfloat16 for Ampere+
-        load_in_4bit=True,
+        load_in_4bit=load_in_4bit,
     )
 
     if hasattr(model.config, "model_max_length"):
-        assert max_seq_length <= model.config.model_max_length
+        assert max_model_len <= model.config.model_max_length
     else:
-        assert max_seq_length <= model.config.max_position_embeddings
+        assert max_model_len <= model.config.max_position_embeddings
 
     print("Patching the model")
     model = FastLanguageModel.get_peft_model(
         model,
-        r=16,  # Choose any number > 0 ! Suggested 8, 16, 32, 64, 128
+        r=r,  # Choose any number > 0 ! Suggested 8, 16, 32, 64, 128
         target_modules=["q_proj", "k_proj", "v_proj", "o_proj", "gate_proj", "up_proj", "down_proj"],
-        lora_alpha=16,
+        lora_alpha=alpha,
         lora_dropout=0,  # Supports any, but=0 is optimized
         bias="none",  # Supports any, but="none" is optimized
         use_gradient_checkpointing="unsloth",  # True or "unsloth" for very long context
         random_state=seed,
-        use_rslora=False,  # We support rank stabilized LoRA
+        use_rslora=use_rslora,  # We support rank stabilized LoRA
         loftq_config=None,  # And LoftQ
     )
+
+    loading_time = time.time() - s
+    print(f"Model loading time: {loading_time}.")
 
     return model, tokenizer
 
 response_template = "### Assistant:\n"
 chat_template = "### User:\n{}\n"+response_template+"{}"
 
-def train_model_unsloth(tokenizer, model, dataset, save_dir, instructions, max_seq_length=256, train_args={}):
+def train_model_unsloth(tokenizer, model, dataset, save_dir, save_merged=False, max_seq_length=256, train_args={}):
 
     # format dataset for model
     def formatting_func(examples):
         return {
             "text": [
-                chat_template.format(random.choice(instructions), " "+t) +
+                chat_template.format(ins, " "+t) +
                 tokenizer.eos_token
-                for t in examples['text']
+                for ins, t in zip(examples["instruction"], examples['text'])
             ]
         }
 
-    dataset = dataset.map(formatting_func, batched=True)
+    dataset = dataset.map(formatting_func, batched=True, desc="Formatting training data")
 
     collator = DataCollatorForCompletionOnlyLM(
         response_template=response_template,
@@ -155,7 +98,6 @@ def train_model_unsloth(tokenizer, model, dataset, save_dir, instructions, max_s
         output_dir=save_dir, **train_args
     )
 
-    print("Training")
     # Setting sft parameters
     trainer = SFTTrainer(
         model=model,
@@ -179,14 +121,24 @@ def train_model_unsloth(tokenizer, model, dataset, save_dir, instructions, max_s
     print("model was trained")
     # save the model
     metrics = train_result.metrics
-    max_train_samples = train_result.global_step if train_result.global_step is not None else len(train_dataset)
     trainer.log_metrics("train", metrics)
     trainer.save_metrics("train", metrics)
     trainer.save_state()
 
     final_state_dir = save_dir / "final"
     trainer.model.save_pretrained(final_state_dir)
-    print("Model saved to:", final_state_dir)
+    trainer.tokenizer.save_pretrained(final_state_dir)
+    print("Model adapters and tokenizer saved to:", final_state_dir)
+
+    if save_merged:
+        merge_s = time.time()
+        full_model_save_dir = save_dir / "final_merged"
+        trainer.model.save_pretrained_merged(full_model_save_dir, tokenizer, save_method="merged_16bit")
+        print("Full model saved to :", full_model_save_dir)
+
+        merging_and_saving_time = time.time() - merge_s
+        hours, minutes, seconds = secs_2_hms(merging_and_saving_time)
+        print("Model merging and saving time: %d:%02d:%02d" % (hours, minutes, seconds))
 
     train_logs = {
         "model_save_path": str(final_state_dir),
@@ -198,79 +150,80 @@ def train_model_unsloth(tokenizer, model, dataset, save_dir, instructions, max_s
 
 
 def generate_data(
-        tokenizer,
-        model,
         instructions,
-        save_dir=None,
-        n_posts_to_generate=1000,
-        batch_size=250,
+        model,
+        tokenizer=None,  # if vllm=False
+        vllm=False,
+        batch_size=500,
         verbose=False,
-        deduplicate=False,
         generation_arguments={},
+        seed=None,
 ):
-    FastLanguageModel.for_inference(model)  # Enable native 2x faster inference
+    if not vllm:
+        if tokenizer is None:
+            raise ValueError("tokenizer must be provided if non-vllm inference is used")
+
+    if not vllm:
+        s = time.time()
+        # unsloth inference
+        print("Patching model for inference")
+        FastLanguageModel.for_inference(model)  # Enable native 2x faster inference
+
+        patching_time = time.time() - s
+        print(f"Inference patching time: {patching_time}.")
 
     s = time.time()
 
-    # Prepare inputs (instructions)
     print("Preparing prompts")
-    prompts = [random.choice(instructions) for _ in range(np.minimum(batch_size, n_posts_to_generate))]
+    # create a dataset for generation
     dataset = Dataset.from_dict({"instruction": instructions})
-    dataset = dataset.map(lambda x: {
-        "text": chat_template.format(x["instruction"], "")
-    })
+    dataset = dataset.map(lambda x: {"text": chat_template.format(x["instruction"], "")}, desc="Formatting generation instructions")
+    dataset_size = len(dataset)
 
     generated_texts = []
 
-    for b_i in range(0, n_posts_to_generate, batch_size):
-        print(f"Generated {b_i}/{n_posts_to_generate}.")
+    for b_i in range(0, dataset_size, batch_size):
+        print(f"Generated {b_i}/{dataset_size}.")
 
         if b_i > 0:
-            eta = (time.time() - s)/b_i * (n_posts_to_generate - b_i)
+            eta = (time.time() - s)/b_i * (dataset_size - b_i)
             hours, minutes, seconds = secs_2_hms(eta)
             print("\tETA: %d:%02d:%02d" % (hours, minutes, seconds))
 
-        batch_indices = np.random.randint(0, len(dataset), batch_size)
+        # batch_indices = np.random.randint(0, len(dataset), batch_size)
+        batch_indices = list(range(b_i, min(b_i+batch_size, dataset_size)))
         batch = dataset.select(batch_indices)
 
-        model_inputs = tokenizer(
-            batch["text"],
-            return_tensors="pt", padding=True
-        ).to("cuda")
+        if vllm:
+            outputs = model.generate(batch["text"], SamplingParams(**generation_arguments, seed=seed))
+            generated_texts.extend([o.outputs[0].text for o in outputs])
 
-        # Generate posts
-        batch_gen_ids = model.generate(
-            **model_inputs,
-            **{
+        else:
+            model_inputs = tokenizer(batch["text"], return_tensors="pt", padding=True).to("cuda")
+            # todo: set seed?
+            batch_gen_ids = model.generate(
+                **model_inputs,
                 **generation_arguments,
-                **{"use_cache": True}
-            }
-        )
+                use_cache=True,
+            )
 
-        for inp, gen_ids in zip(model_inputs['input_ids'], batch_gen_ids):
-            tx = tokenizer.decode(gen_ids[len(inp):], skip_special_tokens=True)
-            generated_texts.append(tx)
+            for inp, gen_ids in zip(model_inputs['input_ids'], batch_gen_ids):
+                tx = tokenizer.decode(gen_ids[len(inp):], skip_special_tokens=True)
+                generated_texts.append(tx)
 
-    if deduplicate:
-        generated_texts = list(set(generated_texts))
-        print(f"N posts after deduplication: {len(generated_texts)}")
+    output_dataset = Dataset.from_dict({
+        "instruction": instructions,
+        "text": generated_texts
+    })
 
     generation_time = time.time() - s
     print(f"Generation time: {generation_time}.")
 
     # print a sample
     if verbose:
-        for i in random.sample(range(n_posts_to_generate), 5):
-            p, tx = prompts[i], generated_texts[i]
+        for item in output_dataset.select(random.sample(range(dataset_size), 5)):
+            p, tx = item['instruction'], item['text']
             print(f"\n%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%\n{p.strip()}\n%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%\n", tx)
 
-    # save
-    generated_text_path = None
-    if save_dir:
-        generated_text_path = save_dir / 'output.jsonl'
-        with jsonlines.open(generated_text_path, "w") as writer:
-            writer.write_all(zip(prompts, generated_texts))
-            print(f"Generated text saved in {generated_text_path}.")
-
-    return generated_texts, {"generation_time": generation_time, "generation_save_path": str(generated_text_path)}
+    return output_dataset, {"generation_time": generation_time}
 

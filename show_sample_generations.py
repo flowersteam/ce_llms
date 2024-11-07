@@ -35,7 +35,7 @@ n_generations = len(list(experiment_dir.glob("gen_[0-9]*")))
 
 for gen_i in range(0, n_generations):
     gen_csv = experiment_dir / f"gen_{gen_i}" / f"{participant}/generations.csv"
-    ai_dataset = load_dataset_from_csv(gen_csv)
+    ai_dataset = load_dataset_from_texts_from_csv(gen_csv)
     datasets.append(ai_dataset)
 
 dataset_labels = [f"AI gen {i}" for i in range(len(datasets))]
