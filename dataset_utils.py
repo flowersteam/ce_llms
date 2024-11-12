@@ -18,6 +18,8 @@ try:
 except:
     ...
 
+import torch
+from transformers import BertTokenizer, BertModel
 from functools import lru_cache
 
 import inspect
@@ -239,8 +241,55 @@ def load_news_dataset(cache_dir=None, load_n=None, load_frac=1.0, lean=None, see
     return dataset, labels, feat_sentiment
 
 
-def load_reddit_dataset(cache_dir=None, load_n=None, load_frac=1.0, lean=None, seed=1):
-    dataset_path = "./data/reddit_lib_con/file_name.csv"
+def load_reddit_dataset_2(cache_dir='data/dataset_cache', load_n=None, load_frac=1.0, lean=None, seed=1):
+
+
+    dataset_savepath = os.path.join(
+        cache_dir, "dataset_cache", f"reddit2_load_n_{load_n}_lean_{lean}_seed_{seed}_{get_current_file_hash()}.save"
+    )
+
+    feat_sentiment = ClassLabel(num_classes=2, names=["Liberal", "Conservative"])
+
+    if os.path.exists(dataset_savepath):
+        print(f"Loading dataset from cache in: {dataset_savepath}")
+        dataset = load_from_disk(dataset_savepath)
+    
+    else:
+        dataset_folder = "./data/reddit_dataset_2/"
+        print(f"Loading reddit dataset from {dataset_folder}")
+        dataset_liberal = load_dataset_from_csv(os.path.join(dataset_folder, "Liberal.json"))
+        dataset_conservative = load_dataset_from_csv(os.path.join(dataset_folder, "Conservative.json"))
+
+        ##Add political lean column
+        dataset_liberal = dataset_liberal.map(lambda x: {"Political Lean": 'Liberal'}, batched=True)
+        dataset_conservative = dataset_conservative.map(lambda x: {"Political Lean": 'Conservative'}, batched=True)
+
+        dataset = dataset_liberal.concatenate(dataset_conservative)
+
+        if lean:
+            dataset = dataset.filter(lambda examples: [p == lean for p in examples['Political Lean']], batched=True)
+
+        if load_n is not None:
+            
+            load_frac = load_n / len(dataset)
+            dataset = dataset.train_test_split(test_size=1-load_frac, shuffle=True, seed=seed, stratify_by_column="Political Lean")['train']
+    
+        elif load_frac != 1.0:
+            dataset = dataset.train_test_split(test_size=1-load_frac, shuffle=True, seed=seed, stratify_by_column="Political Lean")['train']
+
+        # save dataset
+        print (f"Saving dataset to {dataset_savepath}")
+        dataset.save_to_disk(dataset_savepath)
+
+    labels = dataset['Political Lean']
+
+    return dataset, labels, feat_sentiment
+
+    
+
+
+def load_reddit_dataset(cache_dir='data/dataset_cache', load_n=None, load_frac=1.0, lean=None, seed=1):
+    dataset_path = "data/reddit_lib_con/file_name.csv"
     print(f"Loading reddit dataset from {dataset_path}")
 
     feat_sentiment = ClassLabel(num_classes=2, names=["Liberal", "Conservative"])
@@ -457,7 +506,7 @@ def load_human_dataset(dataset_name=None, **kwargs):
 
     if dataset_name == "twitter":
         human_dataset, _, _ = load_twitter_dataset(**kwargs)
-        human_dataset = human_dataset.map(remove_links, batched=True, desc="Removing links")
+        human_dataset = human_dataset.map(remove_links, batched=True)
 
     elif dataset_name == "reddit":
         human_dataset, _, _ = load_reddit_dataset(**kwargs)
@@ -467,6 +516,9 @@ def load_human_dataset(dataset_name=None, **kwargs):
 
     elif dataset_name == "news":
         human_dataset, _, _ = load_news_dataset(**kwargs)
+    
+    elif dataset_name == "reddit2":
+        human_dataset, _, _ = load_reddit_dataset_2(**kwargs)
 
     else:
         raise NotImplementedError(f"Undefined dataset {dataset_name}.")
@@ -538,3 +590,30 @@ def load_twitter_dataset(cache_dir='data', load_n=None, load_frac=1.0, lean=None
     return dataset, labels, feat_sentiment
 
 
+class BertEmbedder:
+
+    def __init__(self):
+        self.bert_tokenizer = BertTokenizer.from_pretrained('bert-base-uncased')
+        if torch.cuda.is_available():
+            self.device = torch.device("cuda")
+        elif torch.backends.mps.is_built():
+            self.device = torch.device("mps")
+        else:
+            self.device = torch.device("cpu")
+
+        self.bert_model = BertModel.from_pretrained("bert-base-uncased").eval().to(self.device)
+
+    def add_bert_embeddings(self, dataset):
+
+        def bert_embed_text(examples):
+            encoded_input = self.bert_tokenizer(examples['text'], return_tensors='pt', padding=True)
+            encoded_input = {k: v.to(self.device) for k, v in encoded_input.items()}
+            output = self.bert_model(**encoded_input)
+            embeddigs = output['last_hidden_state'][:, 0, :]  # we take the representation of the [CLS] token
+            if self.device == torch.device("mps"):
+                torch.mps.empty_cache()
+            elif self.device == torch.device("cuda"):
+                torch.cuda.empty_cache()
+            return {"embeddings": list(embeddigs)}
+
+        return dataset.map(bert_embed_text, batched=True, batch_size=128)
