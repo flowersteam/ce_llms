@@ -44,6 +44,9 @@ print(args)
 print(f"Participant: {args.participant}")
 experiment_dir = Path(args.experiment_dir)
 
+if len(list(experiment_dir.glob(f"*/{args.participant}"))) == 0:
+    raise ValueError(f"No results for participant {args.participant} found in {experiment_dir}")
+
 if args.human_input_only:
     eval_save_dir = Path("./eval_results") / experiment_dir / f"{args.participant}_human_input"
 else:
