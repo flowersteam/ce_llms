@@ -100,6 +100,7 @@ if __name__ == "__main__":
     parser.add_argument("--metric", type=str, default="ces_Qwen/Qwen2.5-72B")
     parser.add_argument("--interaction-metric", type=str, default="ai_ratio")
     parser.add_argument("--interaction-plots", "-ip", action="store_true", help="Show interaction plots.")
+    parser.add_argument("--interaction-generation", "-ipg", type=int, default=19)
     parser.add_argument("--visualize-datasets", action="store_true")
     parser.add_argument("--assert-n-datapoints", type=int, default=None, help="Assert number of datapoints to shade by (e.g. seeds).")
     parser.add_argument("--plot-2D", nargs="+", help="Plot 2D graph of the metrics", default=None)
@@ -178,8 +179,11 @@ if __name__ == "__main__":
                 if args.interaction_plots:
                     # dir-wo_ratio -> (ratio, n_seeds)  -> different ratios in the same plot
                     label = create_label_interaction_plot(dir, part)
-                    last_gen_score = np.mean(scores[-1])
-                    label_metric_dict[label][interaction_metric].append(last_gen_score)
+                    if args.interaction_generation < len(scores):
+                        last_gen_score = np.mean(scores[args.interaction_generation])
+                        label_metric_dict[label][interaction_metric].append(last_gen_score)
+                    else:
+                        warnings.warn(f"No generation {args.interaction_generation} found in {part}")
 
                 elif args.per_seed:
                     # dir+seed -> (n_generations, n_posts)
