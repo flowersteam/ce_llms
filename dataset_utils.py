@@ -241,6 +241,13 @@ def load_news_dataset(cache_dir=None, load_n=None, load_frac=1.0, lean=None, see
     return dataset, labels, feat_sentiment
 
 
+def load_dataset_from_csv(filename):
+
+    print(f"Loading dataset from {filename}")
+    df = pd.read_csv(filename, keep_default_na=False)
+    return Dataset.from_pandas(df)
+
+
 def load_reddit_dataset_2(cache_dir='data/dataset_cache', load_n=None, load_frac=1.0, lean=None, seed=1):
 
 
