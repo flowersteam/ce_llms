@@ -1,5 +1,6 @@
 import datasets
 import re
+import numpy as np
 import json
 
 # # CLEAN BAD SUBREDDITS
@@ -117,6 +118,17 @@ def filter_posts_by_size(dataset, n_min, n_max):
     return dataset
 
 
+def get_unique_indices(d):
+    unique_text_indices = {}
+
+    for i, text in enumerate(d['text']):
+        if text not in unique_text_indices:
+            unique_text_indices[text] = i  # Store the index of the first occurrence
+
+    unique_indices = list(unique_text_indices.values())
+    return unique_indices
+
+
 # file_path = 'data/webis_reddit/clear-corpus-webis-tldr-17.json'
 file_path = f'data/webis_reddit/350-minus-20-plus-clear-corpus-webis-tldr-17.json'
 dataset_hf = datasets.load_dataset("json", data_files=[file_path])
@@ -128,6 +140,23 @@ n_min = 20
 n_max = 200
 dataset_hf = filter_posts_by_size(dataset_hf, n_min=n_min, n_max=n_max)
 
+# deduplicate
+# unique_indices = np.unique(dataset_hf['train']['text'], return_index=True)[1]
 
+unique_indices = get_unique_indices(dataset_hf['train'])
+assert len(unique_indices) == len(set(dataset_hf['train']['text']))
+
+dataset_hf['train'] = dataset_hf['train'].select(unique_indices)
+
+# split and save
 split_dataset = dataset_hf['train'].train_test_split(test_size=0.9, shuffle=True, seed=42)
 split_dataset.save_to_disk(f"./data/webis/prepared-no-tldr-{n_max}-minus-{n_min}-plus-clear-corpus-webis-tldr-17")
+
+
+# add toxicity estimates
+from eval_utils import get_toxicity_batch
+dataset = split_dataset.map(
+    lambda examples: {"toxicity": get_toxicity_batch(examples["text"], batch_size=len(examples["text"]))},
+    batched=True, desc="Computing toxicity", batch_size=1000
+)
+dataset.save_to_disk(f"./data/webis/prepared-tox-no-tldr-{n_max}-minus-{n_min}-plus-clear-corpus-webis-tldr-17")

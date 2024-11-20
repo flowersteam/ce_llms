@@ -2,6 +2,7 @@
 ##SBATCH -A imi@a100
 ##SBATCH -C a100
 #SBATCH -A vgw@h100
+#SBATCH --cpus-per-task=24
 #SBATCH -C h100
 #SBATCH --time=09:55:59
 #SBATCH --gres=gpu:1
@@ -31,42 +32,33 @@ echo "ratio_id:"$ratio_id
 echo "seed:"$seed
 
 # human dataset size for generation 0
-per_participant_ft_dataset_size=8000
-#per_participant_ft_dataset_size=4000
+#per_participant_ft_dataset_size=8000
+per_participant_ft_dataset_size=4000
 
 # Define ratio array to use for calculating the generated dataset size
 ratios=(0.0625 0.125 0.25 0.5 0.75 1)
-per_participant_generated_dataset_size=$(echo "${ratios[$ratio_id]} * $per_participant_ft_dataset_size / 1" | bc)
-per_participant_human_dataset_size=$(( per_participant_ft_dataset_size - per_participant_generated_dataset_size ))
+per_participant_ai_dataset_size=$(echo "${ratios[$ratio_id]} * $per_participant_ft_dataset_size / 1" | bc)
+per_participant_human_dataset_size=$(( per_participant_ft_dataset_size - per_participant_ai_dataset_size ))
 
 echo "ft_size:"$per_participant_ft_dataset_size
-echo "generated_dataset_size:"$per_participant_generated_dataset_size
+echo "generated_dataset_size:"$per_participant_ai_dataset_size
 echo "human_dataset_size:"$per_participant_human_dataset_size
 
-
 # mistral nemo
-#model="/lustre/fsn1/projects/rech/imi/utu57ed/.cache/huggingface/hub/models--unsloth--Mistral-Nemo-Base-2407-bnb-4bit/snapshots/20cfd0e98fb2628b00867147b2c6f423d27f3561/"
-#quantization="True"
-
-# mistral 16-nemo
 #model="/lustre/fsn1/projects/rech/imi/utu57ed/.cache/huggingface/hub/models--unsloth--Mistral-Nemo-Base-2407/snapshots/067a5371598bb01f5c7ce9c3c457e7f41f7da258"
 #quantization="False"
 
-# llama-4bit
-#model="/lustre/fsn1/projects/rech/imi/utu57ed/.cache/huggingface/hub/models--unsloth--Meta-Llama-3.1-8B-bnb-4bit/snapshots/a8b0fc584b10e0110e04f9d21c7f10d24391c1d5/"
-#quantization="True"
-
-# llama-16bit
+# llama
 model="/lustre/fsn1/projects/rech/imi/utu57ed/.cache/huggingface/hub/models--unsloth--Meta-Llama-3.1-8B/snapshots/3514c510ea4ba4d650522f467d4d0cef7de4a43c/"
 quantization="False"
 
 # qwen
-#model="/lustre/fsn1/projects/rech/imi/utu57ed/.cache/huggingface/hub/models--unsloth--Qwen2.5-7B-bnb-4bit/snapshots/9d7326d436359f5a2033cc7a5c7daad8bbbb4bae/"
-#quantization="True"
+#model="/lustre/fsn1/projects/rech/imi/utu57ed/.cache/huggingface/hub/models--unsloth--Qwen2.5-7B/snapshots/ba9b4387ffef6e88435fee0dcdd97a637fb817fc"
+#quantization="False"
 
 # gemma
-#model="/lustre/fsn1/projects/rech/imi/utu57ed/.cache/huggingface/hub/models--unsloth--gemma-2-9b-bnb-4bit/snapshots/4a92d80aa6fecc1f41eb488431d835747e23ec75/"
-#quantization="True"
+#model="/lustre/fsn1/projects/rech/imi/utu57ed/.cache/huggingface/hub/models--unsloth--gemma-2-9b/snapshots/305ed9a1bf6aefcdba9fabdc0d4f9a6de413dcef"
+#quantization="False"
 
 #dataset_name="twitter"
 dataset_name="webis_reddit"
@@ -92,6 +84,7 @@ split="test"
 roof_prob=0.03
 
 epochs=1
+#epochs=0.001
 rank=16
 alpha=16
 rslora="False"
@@ -104,13 +97,12 @@ temp=1.5
 min_p=0.2
 roof_prob=0.03
 
+accumulate=1
 
-exp_path=dev_results/human_ai_ratio_no_tldr_v2_split_${split}_rank_${rank}_alpha_${alpha}_rslora_${rslora}_bs_${per_device_batch_size}_lr_${lr}_lr_sched_${lr_scheduler}_warmup_ratio_${warmup_ratio}_temp_${temp}_min_p_${min_p}_webis_reddit_ft_size_${per_participant_ft_dataset_size}_${model_tag}_participants_${n_part}_roof_prob_${roof_prob}/generated_${per_participant_generated_dataset_size}_human_${per_participant_human_dataset_size}_unsloth/seed_${seed}_${datetime}
+exp_path=dev_results/human_ai_ratio_v3_acc_${accumulate}_epochs_${epochs}_split_${split}_rank_${rank}_alpha_${alpha}_rslora_${rslora}_bs_${per_device_batch_size}_lr_${lr}_lr_sched_${lr_scheduler}_warmup_ratio_${warmup_ratio}_temp_${temp}_min_p_${min_p}_webis_reddit_ft_size_${per_participant_ft_dataset_size}_${model_tag}_participants_${n_part}_roof_prob_${roof_prob}/generated_${per_participant_ai_dataset_size}_human_${per_participant_human_dataset_size}_unsloth/seed_${seed}_${datetime}
 
 mkdir -p $exp_path
 log_path=$exp_path/log.txt
-
-
 
 for gen_i in {0..19}
 do
@@ -120,18 +112,23 @@ do
   if [ "$gen_i" -eq 0 ]; then
     # in first the first generation
     current_per_participant_human_dataset_size=$per_participant_ft_dataset_size
+    current_per_participant_ai_dataset_size=0
 
   else
     current_per_participant_human_dataset_size=$per_participant_human_dataset_size
+    current_per_participant_ai_dataset_size=$per_participant_ai_dataset_size
 
   fi
 
   python -u sample_datasets.py \
     --exp-path $exp_path --generation "$gen_i" --n-participants "$n_part" \
     --per-participant-human-dataset-size $current_per_participant_human_dataset_size \
+    --per-participant-ai-dataset-size $current_per_participant_ai_dataset_size \
     --human-dataset $dataset_name \
     --roof-prob $roof_prob \
     --split $split \
+    --deduplicate \
+    --accumulate $accumulate \
     --seed "${seed}_gen_${gen_i}" 2>&1 | tee -a $log_path
 
 
@@ -157,10 +154,9 @@ do
         --roof-prob $roof_prob \
         --temp $temp \
         --min-p $min_p \
-        --gen-n $per_participant_generated_dataset_size \
+        --gen-unique-n $per_participant_ai_dataset_size \
         --dataset-name $dataset_name \
-        --split $split \
-        --deduplicate  2>&1 | tee -a $log_path
+        --split $split 2>&1 | tee -a $log_path
 
   done
 done

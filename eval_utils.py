@@ -12,6 +12,8 @@ from sklearn.metrics import pairwise_distances
 from sklearn.linear_model import LogisticRegression
 from sklearn.metrics import log_loss
 
+from Levenshtein import ratio
+from scipy.spatial.distance import pdist
 
 from nltk.sentiment.vader import SentimentIntensityAnalyzer
 from transformers import pipeline, AutoTokenizer
@@ -99,6 +101,10 @@ def get_political_lean_batch(texts):
     cprint(f"Elapsed Time: {elapsed_time}", "blue")
 
     return labels, scores
+
+
+def compute_normalized_levenshtein_diversity(texts):
+    return 1 - np.mean(pdist(np.array(texts).reshape((-1, 1)), metric=ratio))
 
 
 def calculate_ttr(text):

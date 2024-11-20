@@ -5,6 +5,7 @@ import json
 import itertools
 from pathlib import Path
 import re
+import matplotlib.colors as mcolors
 
 from visualization_utils import *
 
@@ -12,52 +13,78 @@ from visualization_utils import *
 def create_label(dir, part_dir, interaction_metric):  # different labels -> different curves
     # we merge different seeds into same curve
 
-    # if "seed" in str(dir):
-    #     seed_str = f" (seed={dir.name[:36][-9:]})"
-    # else:
-    #     seed_str = ""
-    #
-    # if "split" in dir:
-    #     split_str = f" {dir.split('_split_')[1].split('_')[0]} split "
-    # else:
-    #     split_str = " train split "
-    #
-    # return str(dir).split("reddit_")[1].split("_roof_prob_")[0] + \
-    #     split_str + seed_str + f" (AI ratio={interaction_metric}, {str(part_dir.name).split('_undeduplicated')[0]})"
+    if "seed" in str(dir):
+        seed_str = f" (seed={dir.name[:36][-9:]})"
+    else:
+        seed_str = ""
 
-    return str(dir).replace("eval_results/dev_results/", "") + f"({part_dir.name})"
+    ft_size = str(dir).split("_ft_size_")[1].split("_")[0]
+    n_part = str(dir).split("_participants_")[1].split("_")[0]
+    model = str(dir).split("000_")[1].split("_")[0]
+    participant = str(part_dir.name).split("_undeduplicated")[0]
+
+    if "epochs" in str(dir):
+        epochs = str(dir).split("_epochs_")[1].split("_")[0]
+    else:
+        epochs = 1.0
+
+    if "acc" in str(dir):
+        acc = bool(int(str(dir).split("_acc_")[1].split("_")[0]))
+
+    else:
+        acc = False
+
+    return f"Accumulate: {acc} Epochs: {epochs} Model: {model}; ft size: {ft_size}; n_part: {n_part}; part: {participant}; ratio: {interaction_metric} {seed_str}"
+    # return str(dir).replace("eval_results/dev_results/", "") + f"({part_dir.name})"
 
 
 def create_label_interaction_plot(dir, part_dir):  # different label -> different curves
     # we merge different ratios and seeds into same curve
 
-    # if "split" in dir:
-    #     split_str = f" {dir.split('_split_')[1].split('_')[0]} split "
-    # else:
-    #     split_str = " train split "
-    #
-    # return str(dir).split("reddit_")[1].split("_roof_prob_")[0] + split_str + f"({str(part_dir.name).split('_undeduplicated')[0]})"
-    return str(dir).replace("eval_results/dev_results/", "").split("generated_")[0] + f"({part_dir.name})"
+    if "epochs" in dir:
+        epochs = str(dir).split("_epochs_")[1].split("_")[0]
+    else:
+        epochs = 1.0
+
+    if "acc" in dir:
+        acc = bool(int(str(dir).split("_acc_")[1].split("_")[0]))
+
+    else:
+        acc = False
+
+    ft_size = str(dir).split("_ft_size_")[1].split("_")[0]
+    n_part = str(dir).split("_participants_")[1].split("_")[0]
+    model = str(dir).split("000_")[1].split("_")[0]
+    participant = str(part_dir.name).split("_undeduplicated")[0]
+
+    return f"Accumulate: {acc} Epoch: {epochs} Model: {model}; ft size: {ft_size}; n_part: {n_part}; part: {participant}"
+    # return str(dir).replace("eval_results/dev_results/", "").split("generated_")[0] + f"({part_dir.name})"
 
 
 def label_to_color_id(label):  # label with different color_id -> different colors
     # we remove all after generated_ -> different ratios and seed have same color
 
     # return label.split("AI ratio")[0]
-    # return label
-    return label.split("generated_")[0]
+    try:
+        return label.split("seed")[1]
+    except:
+        return label.split("ratio")[0]
+
+    # return label.split("generated_")[0]
 
 
 # this can be used to fix some experiment_ids to colors
 def parse_colors_dict(colors_dict):
     # parse color dict
-    # for d, c in colors_dict.items():
-    #     if "ft_size_8000" in d:
-    #         colors_dict[d] = "green"
-    #     elif "participants_2" in d:
-    #         colors_dict[d] = "blue"
-    #     else:
-    #         colors_dict[d] = "red"
+    for d, c in colors_dict.items():
+        if "8000" in d:
+            colors_dict[d] = "black"
+        elif "n_part: 1" in d:
+            colors_dict[d] = "red"
+        elif "n_part: 2" in d:
+            colors_dict[d] = "blue"
+        else:
+            colors_dict[d] = "green"
     return colors_dict
 
 
@@ -108,6 +135,7 @@ if __name__ == "__main__":
     parser.add_argument("--violin", action="store_true")
     parser.add_argument("--per-seed", action="store_true")
     parser.add_argument("--save-path", type=str, default=None)
+    parser.add_argument("--part", type=str, default="part_*", help="Wildcard defining which participants to show. (Default all)")
     parser.add_argument("--no-show", action="store_true")
     parser.add_argument("--log", action="store_true", help="Log scale y axis")
 
@@ -115,6 +143,8 @@ if __name__ == "__main__":
 
     if args.metric == "div":
         args.metric = "cos_diversity_stella"
+    elif args.metric == "var":
+        args.metric = "var_diversity_stella"
     elif args.metric == "ppl":
         args.metric = "ppl_Qwen/Qwen2.5-72B"
     elif args.metric == "ce":
@@ -126,7 +156,7 @@ if __name__ == "__main__":
 
     args.directories = sorted(args.directories, key=lambda d: int(d.split("generated_")[1].split("_human")[0]))
 
-    all_participant_jsons = list(itertools.chain(*[Path(d).glob("**/part_*/results.json") for d in args.directories]))
+    all_participant_jsons = list(itertools.chain(*[Path(d).glob(f"**/{args.part}/results.json") for d in args.directories]))
 
     all_participant_directories = sorted([j.parent for j in all_participant_jsons])
 
@@ -139,7 +169,7 @@ if __name__ == "__main__":
     generation_labels = min(all_dataset_labels, key=len)
     n_generations = len(generation_labels)
 
-    all_colors = ["red", "blue", "green", "black", "brown"] + list(mcolors.CSS4_COLORS.keys())[::-1]
+    all_colors = list(mcolors.TABLEAU_COLORS.keys()) + list(mcolors.CSS4_COLORS.keys())
 
 
     # this will be used to merge runs into seeds later

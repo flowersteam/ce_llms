@@ -25,6 +25,8 @@ except:
     warnings.warn("Packages for vllm inference were not installed.")
     pass
 
+from dataset_utils import get_capped_probs
+
 def secs_2_hms(s):
     minutes, seconds = divmod(s, 60)
     hours, minutes = divmod(minutes, 60)
@@ -150,8 +152,11 @@ def train_model_unsloth(tokenizer, model, dataset, save_dir, save_merged=False, 
 
 
 def generate_data(
-        instructions,
+        all_instructions,
         model,
+        instructions_roof_prob=None,
+        min_unique_posts_to_generate=None,
+        max_generations=None,
         tokenizer=None,  # if vllm=False
         vllm=False,
         batch_size=500,
@@ -174,24 +179,51 @@ def generate_data(
 
     s = time.time()
 
+    # sample instructions
+    if instructions_roof_prob:
+        unique_instructions, capped_probs = get_capped_probs(all_instructions, roof_prob=instructions_roof_prob)
+        instructions = random.choices(unique_instructions, weights=capped_probs, k=len(all_instructions))
+
+    else:
+        # shuffle
+        instructions = random.sample(all_instructions, k=len(all_instructions))
+
     print("Preparing prompts")
     # create a dataset for generation
     dataset = Dataset.from_dict({"instruction": instructions})
-    dataset = dataset.map(lambda x: {"text": chat_template.format(x["instruction"], "")}, desc="Formatting generation instructions")
+    dataset = dataset.map(lambda examples: {
+        "text": [chat_template.format(inst, "") for inst in examples['instruction']]
+    }, batched=True, desc="Formatting generation instructions")
     dataset_size = len(dataset)
 
     generated_texts = []
+    used_instructions = []
+    unique_posts_counter = 0
 
-    for b_i in range(0, dataset_size, batch_size):
-        print(f"Generated {b_i}/{dataset_size}.")
+    i = -1
+    # generate until you generate min_unique_posts_to_genreate unique posts
+    while unique_posts_counter < min_unique_posts_to_generate:
+        if i == max_generations:
+            raise RuntimeError(f"Max generations ({max_generations}) was exceeded and only {unique_posts_counter}/{min_unique_posts_to_generate} unique posts were generated.")
 
-        if b_i > 0:
-            eta = (time.time() - s)/b_i * (dataset_size - b_i)
+        i += 1
+
+        if i > 0:
+            print(f"Generated unique posts {unique_posts_counter}/{min_unique_posts_to_generate}.")
+            eta = (time.time() - s) / min_unique_posts_to_generate * (min_unique_posts_to_generate - unique_posts_counter)
             hours, minutes, seconds = secs_2_hms(eta)
             print("\tETA: %d:%02d:%02d" % (hours, minutes, seconds))
 
-        # batch_indices = np.random.randint(0, len(dataset), batch_size)
-        batch_indices = list(range(b_i, min(b_i+batch_size, dataset_size)))
+        batch_start_i = (i*batch_size) % dataset_size
+        batch_end_i = (batch_start_i + batch_size) % dataset_size
+
+        if batch_start_i < batch_end_i:
+            # no wrap-around
+            batch_indices = list(range(batch_start_i, batch_end_i))
+        else:
+            # wrap indices
+            batch_indices = list(range(batch_start_i, dataset_size)) + list(range(0, batch_end_i))
+
         batch = dataset.select(batch_indices)
 
         if vllm:
@@ -200,7 +232,6 @@ def generate_data(
 
         else:
             model_inputs = tokenizer(batch["text"], return_tensors="pt", padding=True).to("cuda")
-            # todo: set seed?
             batch_gen_ids = model.generate(
                 **model_inputs,
                 **generation_arguments,
@@ -211,8 +242,12 @@ def generate_data(
                 tx = tokenizer.decode(gen_ids[len(inp):], skip_special_tokens=True)
                 generated_texts.append(tx)
 
+        used_instructions.extend(batch['instruction'])
+
+        unique_posts_counter = len(set(generated_texts))
+
     output_dataset = Dataset.from_dict({
-        "instruction": instructions,
+        "instruction": used_instructions,
         "text": generated_texts
     })
 
