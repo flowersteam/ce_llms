@@ -21,7 +21,7 @@ if __name__ == "__main__":
     # Model training
     parser.add_argument('--model-name', type=str, default="mistralai/Mistral-7B-v0.1")
     parser.add_argument('--save-merged', action="store_true", help='Save the merged model in addition to the adapters.')
-    parser.add_argument('--epochs', type=int, default=1)
+    parser.add_argument('--epochs', type=float, default=1)
     parser.add_argument('--lr', type=float, default=2e-4)
     parser.add_argument('--lr-scheduler', type=str, default="linear")
     parser.add_argument('--warmup-ratio', type=float, default=0.0)
@@ -41,8 +41,7 @@ if __name__ == "__main__":
     parser.add_argument('--min-p', type=float, default=0, help='')
     parser.add_argument('--repetition-penalty', type=float, default=1.0, help='1.0 no penalty')
     parser.add_argument('--roof-prob', type=float, default=None, help='Max prob for instruction.')
-    parser.add_argument('--gen-n', type=int, default=4000)
-    parser.add_argument('--deduplicate', action="store_true", help='Deduplicate generated posts')
+    parser.add_argument('--gen-unique-n', type=int, default=4000)
     parser.add_argument('--dataset-name', type=str, help='The dataset to use for instructions for generation.')
     parser.add_argument('--split', type=str, default="train")
 
@@ -127,18 +126,14 @@ if __name__ == "__main__":
 
         all_instructions = get_instructions(dataset_name=args.dataset_name, cache_dir=cache_dir, split=args.split)
 
-        if args.roof_prob:
-            unique_instructions, capped_probs = get_capped_probs(all_instructions, roof_prob=args.roof_prob)
-            instructions = random.choices(unique_instructions, weights=capped_probs, k=args.gen_n)
-
-        else:
-            instructions = random.sample(all_instructions, args.gen_n)
-
         print("Generating")
         output_dataset, gen_logs = generate_data(
             tokenizer=tokenizer,
             model=model,
-            instructions=instructions,
+            all_instructions=all_instructions,
+            instructions_roof_prob=args.roof_prob,
+            min_unique_posts_to_generate=args.gen_unique_n,
+            max_generations=args.gen_unique_n*3,  # will crash if exceeded, todo: change to return less
             generation_arguments=dict(
                 max_new_tokens=args.max_new_tokens,  # 300
                 temperature=args.temp,
@@ -151,15 +146,7 @@ if __name__ == "__main__":
             seed=args.seed
         )
 
-        if args.deduplicate:
-            duplicated_dataset_path = save_dir / "output_dataset_with_duplicates"
-            output_dataset.save_to_disk(duplicated_dataset_path)
-            print(f"Dataset with duplicates saved to: {duplicated_dataset_path}")
-
-            output_dataset = output_dataset.select(np.unique(output_dataset['text'], return_index=True)[1])
-            print(f"N posts after deduplication: {len(output_dataset)}")
-
-        output_dataset_path = save_dir / "output_dataset"
+        output_dataset_path = save_dir / "full_output_dataset"
         output_dataset.save_to_disk(output_dataset_path)
         print(f"Output dataset saved to {output_dataset_path}")
 

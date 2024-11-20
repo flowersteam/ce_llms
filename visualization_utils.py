@@ -1,7 +1,6 @@
 import time
 from contextlib import contextmanager
 import matplotlib.pyplot as plt
-import matplotlib.colors as mcolors
 
 import numpy as np
 
@@ -35,6 +34,7 @@ def plot_and_save(
         save_path=None, no_show=True,
         assert_n_datapoints=None
 ):
+    plt.style.use('seaborn-v0_8-darkgrid')
 
     assert len(labels) == len(ys)
     plt.figure(figsize=(15, 10))
@@ -233,13 +233,14 @@ def plot_repr(embs, dataset_lens, labels, save_path, gif=True, hexbin=True):
             print(f"Saved to: {fig_save_path}")
         
         plt.close()
-def visualize_datasets(datasets, dataset_labels, experiment_tag, gif = True, hexbin = True):
+
+def visualize_datasets(datasets, dataset_labels, experiment_tag, gif = True, hexbin = True, embeddings_collumn="embeddings"):
     # Visualize embeddings
     dataset = concatenate_datasets(datasets, axis=0, info=None)
 
     dataset_lens = [len(d) for d in datasets]
 
-    X = np.array(dataset['embeddings'])
+    X = np.array(dataset[embeddings_collumn])
     ss_X = StandardScaler().fit_transform(X)
 
     # PCA
@@ -247,17 +248,17 @@ def visualize_datasets(datasets, dataset_labels, experiment_tag, gif = True, hex
     print("PCA fitting")
     with timer_block():
         pca_dataset = PCA(n_components=2).fit_transform(ss_X)
-        plot_repr(pca_dataset, dataset_lens, dataset_labels, save_path=f"viz_results/{experiment_tag}_pca", hexbin=hexbin)
+        plot_repr(pca_dataset, dataset_lens, dataset_labels, save_path=f"viz_results/{experiment_tag}_pca", hexbin=hexbin, gif=gif)
 
     print("UMAP fitting")
     with timer_block():
         umap_X = umap.UMAP().fit_transform(ss_X)
-        plot_repr(umap_X, dataset_lens, dataset_labels, save_path=f"viz_results/{experiment_tag}_umap", hexbin=hexbin)
+        plot_repr(umap_X, dataset_lens, dataset_labels, save_path=f"viz_results/{experiment_tag}_umap", hexbin=hexbin, gif=gif)
 
     print("TSNE fiting")
     with timer_block():
         tsne_embedded = TSNE(n_components=2, learning_rate='auto', init='random', perplexity=3).fit_transform(X)
-        plot_repr(tsne_embedded, dataset_lens, dataset_labels, save_path=f"viz_results/{experiment_tag}_tsne", hexbin=hexbin)
+        plot_repr(tsne_embedded, dataset_lens, dataset_labels, save_path=f"viz_results/{experiment_tag}_tsne", hexbin=hexbin, gif=gif)
 
 
 
