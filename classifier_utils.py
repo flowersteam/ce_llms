@@ -228,8 +228,6 @@ def predict_political_lean(batch_texts, model, political_nlp, system_prompt, can
 
             print(inputs)
 
-            # from IPython import embed
-            # embed()
             output = political_nlp.generate(
                 **inputs,
                 max_new_tokens=1,

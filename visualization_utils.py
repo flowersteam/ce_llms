@@ -26,20 +26,96 @@ def timer_block():
     print(f"Elapsed time: {elapsed_time:.2f} seconds")
 
 
+def plot_boxes_and_save(
+        ys,
+        ylabel=None, xlabel=None, fontsize=10, title=None,
+        save_path=None, no_show=True, assert_n_datapoints=None
+):
+    plt.style.use('seaborn-v0_8-darkgrid')
+
+    plt.figure(figsize=(15, 10))
+
+    labels = list(ys.keys())
+    values = list(ys.values())
+
+    # Plot
+    plt.boxplot(values, labels=labels, vert=True, patch_artist=True)
+
+    for i, val in enumerate(values):
+        if assert_n_datapoints:
+            assert len(val) == assert_n_datapoints, f"{len(val)} points found (expected {assert_n_datapoints}) for {labels[i]}."
+
+        # Scatter dots slightly spread horizontally around their x-position (jitter effect)
+        x_coords = [i + 1] * len(val)
+
+        plt.scatter(x_coords, val, alpha=0.7, color='blue', edgecolor='black')
+
+    plt.yticks(fontsize=fontsize)
+
+    if ylabel:
+        plt.ylabel(ylabel, fontsize=fontsize)
+
+    if xlabel:
+        plt.xlabel(xlabel, fontsize=fontsize)
+
+    if title:
+        plt.title(title)
+
+    if save_path:
+        plt.savefig(save_path + ".png", dpi=300)
+        # plt.savefig(save_path+".svg")
+        print(f"Saved to: {save_path}")
+
+    if not no_show:
+        plt.show()
+    else:
+        plt.close()
+
+
 def plot_and_save(
         ys,
         labels,
         ylabel=None, xlabel=None, yticks=None,
-        violin=False, linewidths=None, colors=None, fontsize=10, log=False,
+        violin=False, linewidths=None, linestyles=None, colors=None, fontsize=10, log=False,
         save_path=None, no_show=True,
-        assert_n_datapoints=None
+        assert_n_datapoints=None, scatter=False,
 ):
     plt.style.use('seaborn-v0_8-darkgrid')
 
     assert len(labels) == len(ys)
     plt.figure(figsize=(15, 10))
 
-    for y, label, col, lw in zip(ys, labels, colors, linewidths):
+    # power analysis
+    def cohend(d1, d2):
+        n1, n2 = len(d1), len(d2)
+        s1, s2 = np.var(d1, ddof=1), np.var(d2, ddof=1)
+        s = np.sqrt(((n1 - 1) * s1 + (n2 - 1) * s2) / (n1 + n2 - 2))
+        u1, u2 = np.mean(d1), np.mean(d2)
+        return (u1 - u2) / s
+
+    from statsmodels.stats.power import TTestIndPower
+    def compute_N(y_a, y_b):
+        effect = cohend(y_a, y_b)
+
+        # perform power analysis
+        analysis = TTestIndPower()
+        result = analysis.solve_power(min(np.abs(effect), 5), power=0.8, nobs1=None, ratio=1.0, alpha=0.05/6)
+        return effect, result
+
+    # xs_ = list(ys[0].keys())
+    # x_0 = 0.0
+    # for l_i, lab in enumerate(labels):
+    #     print(f"Lab: {lab}")
+    #     for x_ in xs_:
+    #         if x_ == x_0:  continue
+    #         y_a = ys[l_i][x_0]
+    #         y_b = ys[l_i][x_]
+    #         assert len(y_a) == len(y_b)
+    #         effect, result = compute_N(y_a, y_b)
+    #
+    #         print(f"X: {x_} effect: {effect} -> N: {result}")
+
+    for y, label, col, lw, ls in zip(ys, labels, colors, linewidths, linestyles):
 
         xs = sorted(y.keys())  # e.g. generations / ratios
 
@@ -70,11 +146,27 @@ def plot_and_save(
             # (n_generations)
             mean_ys = np.array([np.mean(y[x]) for x in xs])
             sems_ys = np.array([sem(y[x]) for x in xs])
-            if assert_n_datapoints:
-                assert set(map(len, y.values())) == {assert_n_datapoints}
 
-            plt.plot(xs, mean_ys, label=label, c=col, linewidth=lw)
+            def smooth(data, n=1):
+                if n > 1:
+                    print("Smoothing with n = ", n)
+                smooth_data = np.array([np.mean(data[max(i+1-n, 0): i+1]) for i in range(len(data))])
+                return smooth_data
+
+            mean_ys = smooth(mean_ys)
+            sems_ys = smooth(sems_ys)
+
+            if assert_n_datapoints:
+                assert set(map(len, y.values())) == {assert_n_datapoints}, f"{set(map(len, y.values()))} is not all {assert_n_datapoints} for {label}"
+
+            # col = str(lw/(max(linewidths)+5))
+            plt.plot(xs, mean_ys, label=label, c=col, linewidth=lw, linestyle=ls)
             plt.fill_between(xs, mean_ys-sems_ys, mean_ys+sems_ys, alpha=0.2, color=col)
+
+            if scatter:
+                for i, x in enumerate(xs):
+                    plt.scatter([x] * len(y[x]), y[x], color=col, alpha=0.6, s=5)  # Adjust `s` for point size
+
 
     if yticks:
         plt.yticks(yticks)
@@ -82,6 +174,7 @@ def plot_and_save(
     if log:
         plt.gca().set_yscale('log')
     plt.yticks(fontsize=fontsize)
+    plt.xticks(fontsize=fontsize)
 
     if ylabel:
         plt.ylabel(ylabel, fontsize=fontsize)
@@ -93,7 +186,6 @@ def plot_and_save(
 
     if save_path:
         plt.savefig(save_path+".png", dpi=300)
-        plt.savefig(save_path+".svg")
         print(f"Saved to: {save_path}")
     
     if not no_show:

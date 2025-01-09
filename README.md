@@ -4,8 +4,7 @@
 
 We need three environments
 1) training with unsloth
-2) generation with vllm (if unsloth is used for generation this env is not needed)
-3) evaluation with sklearn
+2) evaluation with sklearn
 
 ### Unsloth conda env
 Load the modules
@@ -32,8 +31,6 @@ pip install -r requirements_unsloth.txt
 ```
 
 
-### vllm conda env
-```todo```
 ### eval conda env
 
 ```

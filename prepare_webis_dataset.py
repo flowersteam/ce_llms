@@ -3,6 +3,14 @@ import re
 import numpy as np
 import json
 
+# import logging
+# from sentence_transformers import LoggingHandler, SentenceTransformer
+#
+# logging.basicConfig(
+#     format="%(asctime)s - %(message)s", datefmt="%Y-%m-%d %H:%M:%S", level=logging.INFO, handlers=[LoggingHandler()]
+# )
+
+
 # # CLEAN BAD SUBREDDITS
 ############################
 # file_path = '/home/flowers-user/Documents/projects/SocialLLM/corpus-webis-tldr-17.json'
@@ -61,11 +69,6 @@ def prepare_dataset(dataset):
             post += text
 
         return post.strip()
-
-    # dataset was not prepared
-    assert "title" in list(dataset_hf['train'].features)
-    assert "body" in list(dataset_hf['train'].features)
-    assert "text" not in list(dataset_hf['train'].features)
 
     dataset = dataset.map(
         lambda examples: {
@@ -128,35 +131,86 @@ def get_unique_indices(d):
     unique_indices = list(unique_text_indices.values())
     return unique_indices
 
+if __name__ == '__main__':
+    # # file_path = 'data/webis_reddit/clear-corpus-webis-tldr-17.json'
+    # file_path = f'data/webis_reddit/350-minus-20-plus-clear-corpus-webis-tldr-17.json'
+    # dataset_hf = datasets.load_dataset("json", data_files=[file_path])
+    #
+    # dataset_hf = prepare_dataset(dataset_hf)
+    # dataset_hf = remove_tldrs(dataset_hf)
+    #
+    n_min = 20
+    n_max = 200
+    # dataset_hf = filter_posts_by_size(dataset_hf, n_min=n_min, n_max=n_max)
+    #
+    # # deduplicate
+    # # unique_indices = np.unique(dataset_hf['train']['text'], return_index=True)[1]
+    #
+    # unique_indices = get_unique_indices(dataset_hf['train'])
+    # assert len(unique_indices) == len(set(dataset_hf['train']['text']))
+    #
+    # dataset_hf['train'] = dataset_hf['train'].select(unique_indices)
+    #
+    # # split and save
+    # split_dataset = dataset_hf['train'].train_test_split(test_size=0.9, shuffle=True, seed=42)
+    # split_dataset.save_to_disk(f"./data/webis/prepared-no-tldr-{n_max}-minus-{n_min}-plus-clear-corpus-webis-tldr-17")
 
-# file_path = 'data/webis_reddit/clear-corpus-webis-tldr-17.json'
-file_path = f'data/webis_reddit/350-minus-20-plus-clear-corpus-webis-tldr-17.json'
-dataset_hf = datasets.load_dataset("json", data_files=[file_path])
 
-dataset_hf = prepare_dataset(dataset_hf)
-dataset_hf = remove_tldrs(dataset_hf)
+    # add toxicity estimates
+    # from eval_utils import get_toxicity_batch
+    # dataset = split_dataset.map(
+    #     lambda examples: {"toxicity": get_toxicity_batch(examples["text"], batch_size=len(examples["text"]))},
+    #     batched=True, desc="Computing toxicity", batch_size=1000
+    # )
+    # dataset.save_to_disk(f"./data/webis/prepared-tox-no-tldr-{n_max}-minus-{n_min}-plus-clear-corpus-webis-tldr-17")
 
-n_min = 20
-n_max = 200
-dataset_hf = filter_posts_by_size(dataset_hf, n_min=n_min, n_max=n_max)
-
-# deduplicate
-# unique_indices = np.unique(dataset_hf['train']['text'], return_index=True)[1]
-
-unique_indices = get_unique_indices(dataset_hf['train'])
-assert len(unique_indices) == len(set(dataset_hf['train']['text']))
-
-dataset_hf['train'] = dataset_hf['train'].select(unique_indices)
-
-# split and save
-split_dataset = dataset_hf['train'].train_test_split(test_size=0.9, shuffle=True, seed=42)
-split_dataset.save_to_disk(f"./data/webis/prepared-no-tldr-{n_max}-minus-{n_min}-plus-clear-corpus-webis-tldr-17")
+    from datasets import load_from_disk
+    # from eval_utils import llama_quality
+    #
+    # file_path = f"./data/webis/prepared-no-tldr-{n_max}-minus-{n_min}-plus-clear-corpus-webis-tldr-17"
+    # split_dataset = load_from_disk(file_path)
+    #
+    # dataset = split_dataset.map(
+    #     lambda examples: {"llama_quality": llama_quality(examples["text"])},
+    #     batched=True, desc="Computing quality", batch_size=10, num_proc=30
+    # )
+    # dataset.save_to_disk(f"./data/webis/prepared-quality-no-tldr-{n_max}-minus-{n_min}-plus-clear-corpus-webis-tldr-17")
 
 
-# add toxicity estimates
-from eval_utils import get_toxicity_batch
-dataset = split_dataset.map(
-    lambda examples: {"toxicity": get_toxicity_batch(examples["text"], batch_size=len(examples["text"]))},
-    batched=True, desc="Computing toxicity", batch_size=1000
-)
-dataset.save_to_disk(f"./data/webis/prepared-tox-no-tldr-{n_max}-minus-{n_min}-plus-clear-corpus-webis-tldr-17")
+    # file_path = f"./data/webis/prepared-quality-no-tldr-{n_max}-minus-{n_min}-plus-clear-corpus-webis-tldr-17"
+    # split_dataset = load_from_disk(file_path)
+    # from IPython import embed; embed();
+
+
+    # split_dataset_hq = split_dataset.filter(lambda ex: ex['llama_quality'] == 2)
+    # file_path = f"./data/webis/prepared-high-quality-no-tldr-{n_max}-minus-{n_min}-plus-clear-corpus-webis-tldr-17"
+    # split_dataset_hq.save_to_disk(file_path)
+
+    # split_dataset_mq = split_dataset.filter(lambda ex: ex['llama_quality'] == 1)
+    # file_path = f"./data/webis/prepared-mid-quality-no-tldr-{n_max}-minus-{n_min}-plus-clear-corpus-webis-tldr-17"
+    # print(split_dataset_mq)
+    # split_dataset_mq.save_to_disk(file_path)
+
+    # file_path = "./data/webis/prepared-quality-no-tldr-200-minus-20-plus-clear-corpus-webis-tldr-17"
+    # split_dataset = load_from_disk(file_path)
+    #
+    # from eval_utils import StellaEmbedder
+    # stella_embedder = StellaEmbedder(multigpu=True)
+    # split_dataset['test'] = stella_embedder.add_embeddings_multigpu(split_dataset['test'], batch_size=2048)
+    # split_dataset['train'] = stella_embedder.add_embeddings_multigpu(split_dataset['train'], batch_size=2048)
+    #
+    # file_path = "./data/webis/prepared-quality-diversity-no-tldr-200-minus-20-plus-clear-corpus-webis-tldr-17"
+    # split_dataset.save_to_disk(file_path)
+
+    file_path = "./data/webis/prepared-quality-diversity-no-tldr-200-minus-20-plus-clear-corpus-webis-tldr-17"
+    split_dataset = load_from_disk(file_path)
+    print('loaded')
+    from eval_utils import compute_cos_diveristy
+    div = compute_cos_diveristy(split_dataset['test']['stella_embeddings'])
+    print(div)
+
+    # from IPython import embed; embed();
+    # low diversity
+    # split_dataset_ld = split_dataset.filter(lambda ex: ex['subreddit'] == "AskReddit", num_proc=30)
+    # file_path = f"./data/webis/prepared-low-diversity-no-tldr-{n_max}-minus-{n_min}-plus-clear-corpus-webis-tldr-17"
+    # split_dataset_ld.save_to_disk(file_path)
