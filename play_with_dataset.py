@@ -1,32 +1,67 @@
 import datasets
-# import itertools
-# import numpy as np
-# from collections import Counter
-#
-# from itertools import combinations
+from pathlib import Path
+import numpy as np
+from collections import Counter
+
 import glob
-from eval_utils import Perplexity
+# from eval_utils import *
 
-# webis_reddit_dataset_path = "./data/webis/prepared-no-tldr-200-minus-20-plus-clear-corpus-webis-tldr-17"
-# d = datasets.load_from_disk(webis_reddit_dataset_path)
+from dataset_utils import *
+# from visualization_utils import *
 
-d_path=glob.glob("dev_results/human_ai_ratio_no_tldr_v2_rank_16_alpha_16_rslora_False_bs_16_lr_2e-4_lr_sched_linear_warmup_ratio_0.00125_temp_1.5_min_p_0.2_webis_reddit_ft_size_4000_Meta-Llama-3.1-8B_participants_2_roof_prob_0.03/generated_1000_human_3000_unsloth/seed_2_2024-11-04_14-33-34.062881747_2024-11-04_14-33-34/gen_19/part_0/output_dataset")[0]
-d = datasets.load_from_disk(d_path)
+from datasets import load_dataset
 
-from IPython import embed; embed();
+# dataset_name = "webis_reddit"
+dataset_name = "reddit_submissions"
+# dataset_name = "100m_tweets"
+# dataset_name = "senator_tweets"
 
-from eval_utils import get_toxicity_batch
-toxicity = get_toxicity_batch(d['text'], batch_size=1024)
+std = load_human_dataset(
+    dataset_name=dataset_name,
+    split="all",
+    load_n=500,
+    dataset_type="standard"
+)
+hq = load_human_dataset(
+    dataset_name=dataset_name,
+    split="all",
+    load_n=500,
+    dataset_type="hq"
+)
+mq = load_human_dataset(
+    dataset_name=dataset_name,
+    split="all",
+    load_n=500,
+    dataset_type="mq"
+)
+ld = load_human_dataset(
+    dataset_name=dataset_name,
+    split="all",
+    load_n=500,
+    dataset_type="ld"
+)
+from eval_utils import StellaEmbedder, compute_cos_diveristy, llama_quality
+stella_embedder = StellaEmbedder()
 
-# perplexity
-response_template = "### RESPONSE\n"
-texts = [f"### INSTRUCTION\n{ins}\n{response_template}\n{tx}" for ins, tx in zip(d['instruction'], d['text'])]
+dataset_names = ["std", "hq", "mq", "ld"]
+datasets = [std, hq, mq, ld]
 
-perplexity = Perplexity('Qwen/Qwen2.5-72B', model_args={"device_map": "auto", "torch_dtype": "auto"})
-# bigger model
-ppl = perplexity.evaluate(
-    texts, response_template=response_template,
-    batch_size=4, add_start_token=False, max_length=1024, add_end_token=True
-)["perplexities"]
+divs = []
+qs = []
 
-from IPython import embed; embed();
+for d_name, d in zip(dataset_names, datasets):
+    d = stella_embedder.add_embeddings(d, batch_size=1024)
+    embs = np.array(d[f'stella_embeddings'])
+    divs.append(compute_cos_diveristy(embs))
+
+    if "llama_quality" in d.column_names:
+        qs.append(np.mean(d['llama_quality']))
+    else:
+        # qs.append(np.nan)
+        qs.append(np.mean(llama_quality(d['text'])))
+
+for d_name, d, q in zip(dataset_names, divs, qs):
+    print(f"{d_name} - {d} - {q}")
+
+
+exit()

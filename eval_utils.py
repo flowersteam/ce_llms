@@ -1,12 +1,14 @@
 import numpy as np
 import warnings
 import time
+import pickle
+import json
 from termcolor import cprint
 
-from nltk import word_tokenize
+from nltk import word_tokenize, sent_tokenize
 
 
-from transformers import AutoModelForCausalLM
+from transformers import AutoModelForCausalLM, pipeline
 
 from sklearn.metrics import pairwise_distances
 from sklearn.linear_model import LogisticRegression
@@ -16,16 +18,239 @@ from Levenshtein import ratio
 from scipy.spatial.distance import pdist
 
 from nltk.sentiment.vader import SentimentIntensityAnalyzer
-from transformers import pipeline, AutoTokenizer
 
 from detoxify import Detoxify
 
+from langkit import extract, light_metrics
+import pandas as pd
 
 import torch
 from transformers import BertTokenizer, BertModel
 
+def get_words(text):
+    return word_tokenize(text)
+
 def num_words(text):
-    return len(word_tokenize(text))
+    return len(get_words(text))
+
+def num_unique_words(text):
+    return len(set(get_words(text)))
+
+from openai import AzureOpenAI, OpenAI
+import os
+client=None
+
+
+def compute_quick_metrics(input_d):
+    results = dict()
+    results['ttr'] = [calculate_ttr(tx) for tx in input_d['text']]
+    results['mttr'] = calculate_ttr(" ".join(input_d['text']))
+
+    results['n_chars_per_post'] = [len(t) for t in input_d['text']]
+
+    words_per_post = [get_words(t) for t in input_d['text']]
+    results['n_words_per_post'] = [len(wrds) for wrds in words_per_post]
+    results['n_unique_words_per_post'] = [len(set(wrds)) for wrds in words_per_post]
+
+    all_words = get_words(" ".join(input_d['text']))
+    results[f'n_words_total'] = len(all_words)
+    results[f'n_unique_words_total'] = len(set(all_words))
+
+    results['n_unique_posts'] = len(set(input_d['text']))
+    results['pc_unique_posts'] = len(set(input_d['text'])) / len(input_d['text'])
+    results['aggregate_reading_level'] = aggregate_reading_level(input_d['text'])
+
+    return results
+
+
+def llama_pol_lean(texts):
+    scores = []
+    global client
+    if client is None:
+        client = OpenAI(
+            api_key="EMPTY",
+            base_url="http://localhost:8000/v1",
+        )
+
+    for t_i, text in enumerate(texts):
+        if t_i % 50 == 0 and t_i > 0:
+            print(f"llama quality: [{t_i}/{len(texts)}]")
+
+        prompt = "You are a political lean judge.\n" + \
+                 "Judge the political lean of a given internet post and reply ONLY with a letter L, N, or R.\n" + \
+                 "\tL - left leaning\n\tN - neutral leaning\n\tR - right leaning\n\n" + \
+                 f"Here is the post: {text}\n\n" + \
+                 "Reply ONLY with the letter (L,N,R). DO NO reply with a sentence."
+
+        # completion = client.beta.chat.completions.parse(
+        completion = client.chat.completions.create(
+            model="llama",
+            temperature=0.01,
+            messages=[
+                {"role": "system", "content": prompt},
+            ],
+            max_tokens=1,
+            logprobs=True,
+            top_logprobs=20,
+        )
+
+        score = None
+        for tlp in completion.choices[0].logprobs.content[0].top_logprobs:
+            token = tlp.token
+            if token in ["L", "N", "R"]:
+                score = {"L": -1, "N": 0, "R": 1}[token]
+                break
+
+        scores.append(score)
+
+    return scores
+
+
+
+
+def llama_is_english(texts):
+    scores = []
+    total_tokens = 0
+    global client
+    if client is None:
+        client = OpenAI(
+            api_key="EMPTY",
+            base_url="http://localhost:8000/v1",
+        )
+
+    for t_i, text in enumerate(texts):
+        if t_i % 50 == 0 and t_i > 0:
+            print(f"llama is_english: [{t_i}/{len(texts)}]")
+
+        prompt = "You will receive a text and have to judge if it's in english and reply ONLY with a integer from 0 or 1.\n" + \
+                 "\t0 - text is not in english \n\t1 - text is in english\n\n" + \
+                 f"Here is the post: {text}\n\n" + \
+                 "Reply ONLY with the integer (0,1). DO NO reply with text."
+
+        # completion = client.beta.chat.completions.parse(
+        completion = client.chat.completions.create(
+            model="llama",
+            temperature=0.01,
+            messages=[
+                {"role": "system", "content": prompt},
+            ],
+            max_tokens=1,
+            logprobs=True,
+            top_logprobs=20,
+        )
+
+        # score = None
+        for tlp in completion.choices[0].logprobs.content[0].top_logprobs:
+            token = tlp.token
+            if token.isdigit():
+                score = int(token)
+                break
+
+        scores.append(score)
+
+    return scores
+
+
+def llama_quality(texts):
+    
+    scores = []
+    total_tokens = 0
+    global client
+    if client is None:
+        client = OpenAI(
+            api_key="EMPTY",
+            base_url="http://localhost:8000/v1",
+        )
+
+    for t_i, text in enumerate(texts):
+        if t_i % 50 == 0 and t_i > 0:
+            print(f"llama quality: [{t_i}/{len(texts)}]")
+
+        prompt = "You are a text quality judge.\n" + \
+                 "When judging the quality pay attention to:\n" + \
+                 "\t- broken/cut-off text\n" + \
+                 "\t- very repetitive text\n" + \
+                 "\t- grammar\n" + \
+                 "\t- semantic plausability\n" + \
+                 "\t- lexical complexity\n" + \
+                 "\nJudge the quality of a given internet post and reply ONLY with a integer from 0-2.\n" + \
+                 "\t0 - low quality\n\t1 - intermediate quality\n\t2 - good quality\n\n" + \
+                 f"Here is the post: {text}\n\n" + \
+                 "Reply ONLY with the score (0,1,2). DO NO reply with text."
+
+        # completion = client.beta.chat.completions.parse(
+        completion = client.chat.completions.create(
+            model="llama",
+            temperature=0.01,
+            messages=[
+                {"role": "system", "content": prompt},
+            ],
+            max_tokens=1,
+            logprobs=True,
+            top_logprobs=20,
+        )
+
+        score = None
+        for tlp in completion.choices[0].logprobs.content[0].top_logprobs:
+            token = tlp.token
+            if token.isdigit():
+                score = int(token)
+                break
+
+        scores.append(score)
+
+    return scores
+
+def gpt4o_quality(texts):
+
+    scores = []
+    total_tokens = 0
+    global client
+    if client is None:
+        client = AzureOpenAI(
+            azure_endpoint=os.getenv(f"AZURE_OPENAI_ENDPOINT_gpt_4o_mini"),
+            api_key=os.getenv("AZURE_OPENAI_KEY_gpt_4o_mini"),
+            api_version=os.getenv("AZURE_OPENAI_API_VERSION_gpt_4o_mini"),
+        )
+
+    for t_i, text in enumerate(texts):
+        if t_i % 10 == 0:
+            print(f"gpt4o quality: [{t_i}/{len(texts)}] -> tokens used: {total_tokens} money used: {(total_tokens/1_000_000)*0.15}")
+
+        prompt = "You are a text quality judge.\n" + \
+                 "When judging the quality pay attention to:\n" + \
+                 "\t- broken/cut-off text\n" + \
+                 "\t- very repetitive text\n" + \
+                 "\t- grammar\n" + \
+                 "\t- semantic plausability\n" + \
+                 "\t- lexical complexity\n" + \
+                 "\nJudge the quality of a given internet post and reply ONLY with a integer from 0-2.\n" + \
+                 "\t0 - low quality\n\t1 - intermediate quality\n\t2 - good quality\n\n" + \
+                 f"Here is the post: {text}"
+
+        # completion = client.beta.chat.completions.parse(
+        completion = client.chat.completions.create(
+            model="gpt-4o-mini",
+            temperature=0.0000001,
+            messages=[
+                {"role": "system", "content": prompt},
+            ],
+            max_tokens=1,
+        )
+        score = completion.choices[0].message.content
+        scores.append(score)
+        total_tokens += completion.usage.total_tokens
+
+    return scores, total_tokens
+
+
+
+def aggregate_reading_level(texts):
+    df = pd.DataFrame({'response': texts})
+    llm_schema = light_metrics.init()
+    edf = extract(df, schema=llm_schema)
+    aggregate_reading_levels = list(edf[f"response.aggregate_reading_level"])
+    return aggregate_reading_levels
 
 
 ## Not used currently
@@ -33,6 +258,8 @@ def get_positivity(text):
     sid = SentimentIntensityAnalyzer()    
     return sid.polarity_scores(text)['compound']
 
+def get_positivites(texts):
+    return [get_positivity(tx) for tx in texts]
 
 # Predict toxicity using library from https://pypi.org/project/detoxify/
 toxicity_nlp = None
@@ -49,6 +276,39 @@ def get_toxicity_batch(texts, batch_size=256):
     return out
 
 
+gibberish_detector = None
+
+def get_gibberish_scores(texts, batch_size=1024):
+    global gibberish_detector
+    if gibberish_detector is None:
+        gibberish_detector = pipeline("text-classification", model="madhurjindal/autonlp-Gibberish-Detector-492513457")
+
+    # get sentences
+    all_sentences = []
+    sentence_mapping = {}
+    for text_i, text in enumerate(texts):
+        sentences = sent_tokenize(text)
+        sentence_mapping[text_i] = list(range(len(all_sentences), len(all_sentences) + len(sentences)))
+        all_sentences.extend(sentences)
+
+    # Get gibberish detection scores for all sentences in a single batch
+    results = gibberish_detector(all_sentences, batch_size=batch_size, truncation=True)
+    sentence_scores = [gibberish_detector.model.config.label2id[r['label']] for r in results]
+
+    # Group scores back into their original texts
+    texts_scores = []
+    for text_i in range(len(texts)):
+        text_scores = [sentence_scores[j] for j in sentence_mapping[text_i]]
+        averaged_score = sum(text_scores) / len(text_scores)
+        texts_scores.append(averaged_score)
+
+    assert len(texts_scores) == len(texts)
+
+    return texts_scores
+
+
+
+
 ## Predict political bias using pretrained model from https://huggingface.co/premsa/political-bias-prediction-allsides-mDeBERTa
 # -1 = Lean Left, 0 = Center, 1 = Lean Right
 # LABEL_0 (-1) = Left , LABEL_1 = Center (0), LABEL_2 (1) = Right
@@ -58,12 +318,16 @@ def get_toxicity_batch(texts, batch_size=256):
 
 
 # zero-shot classifier
-political_nlp = pipeline(model="facebook/bart-large-mnli", task="zero-shot-classification", device="cuda")
+political_nlp = None
 hypothesis_template = "This is a post from a {}."
 candidate_labels = ["democrat", "republican"]
 
 
 def get_political_lean_batch(texts):
+    global political_nlp
+    if political_nlp is None:
+        political_nlp = pipeline(model="facebook/bart-large-mnli", task="zero-shot-classification", device="cuda")
+
     def data(d):
         for i in range(len(d)):
             yield d[i]
@@ -152,6 +416,7 @@ def compute_var_diveristy(embs):
 
 def compute_cos_diveristy(embs):
     dist_matrix = pairwise_distances(embs, metric="cosine")
+    print("distances")
     return dist_matrix[np.triu_indices(len(dist_matrix), k=1)].mean()
 
 def fit_logreg(embs_1, embs_2, max_iter=1):
@@ -296,10 +561,57 @@ class Perplexity:
         return {"perplexities": ppls, "mean_perplexity": np.mean(ppls), "cross_entropies": ces, "mean_cross_entropy": np.mean(ces)}
 
 
+from transformers import AutoTokenizer, AutoModelForMaskedLM
+class ModernBertEmbedder:
+
+    def __init__(self, CLS_token=True):
+
+        if torch.cuda.is_available():
+            self.device = torch.device("cuda")
+        elif torch.backends.mps.is_built():
+            self.device = torch.device("mps")
+        else:
+            self.device = torch.device("cpu")
+
+        model_id = "answerdotai/ModernBERT-large"
+        self.CLS_token = CLS_token
+        self.tokenizer = AutoTokenizer.from_pretrained(model_id)
+
+        # self.bert_tokenizer = BertTokenizer.from_pretrained('bert-base-uncased')
+        self.embedding_name = "modernbert"
+        self.embedding_column_name = "modernbert_embeddings"
+
+        print("Loading ModernBert")
+        self.model = AutoModelForMaskedLM.from_pretrained(model_id, device_map=self.device, torch_dtype=torch.bfloat16)
+        print("ModernBert loaded")
+
+    def add_embeddings(self, dataset, batch_size=256):
+        def embed_text(examples):
+            with torch.no_grad():
+                inputs = self.tokenizer(examples['text'], return_tensors='pt', padding=True).to(self.device)
+                outputs = self.model(**inputs, output_hidden_states=True)
+                last_hidden_states = outputs.hidden_states[-1]
+                last_hidden_states = last_hidden_states.to(dtype=torch.float32).cpu().numpy()
+
+            if self.CLS_token:
+                embeddings = last_hidden_states[:, 0, :]  # [CLS] token representation
+            else:
+                embeddings = last_hidden_states.mean(axis=1)
+
+            assert not np.isnan(embeddings).any()
+
+            return {self.embedding_column_name: list(embeddings)}
+
+        return dataset.map(embed_text, batched=True, batch_size=batch_size, desc="Embedding with ModernBert", load_from_cache_file=False)
+
+
 class BertEmbedder:
 
     def __init__(self):
         self.bert_tokenizer = BertTokenizer.from_pretrained('bert-base-uncased')
+        self.embedding_name = "bert"
+        self.embedding_column_name = "bert_embeddings"
+
         if torch.cuda.is_available():
             self.device = torch.device("cuda")
         elif torch.backends.mps.is_built():
@@ -322,9 +634,9 @@ class BertEmbedder:
                 torch.mps.empty_cache()
             elif self.device == torch.device("cuda"):
                 torch.cuda.empty_cache()
-            return {"bert_embeddings": list(embeddigs)}
+            return {self.embedding_column_name: list(embeddigs)}
 
-        return dataset.map(embed_text, batched=True, batch_size=128, desc="Embedding with bert")
+        return dataset.map(embed_text, batched=True, batch_size=128, desc="Embedding with bert", load_from_cache_file=False)
 
 
 try:
@@ -332,14 +644,50 @@ try:
 except:
     warnings.warn("SentenceTransformer not installed.")
 
-class StellaEmbedder:
+
+class MiniLMEmbedder:
     def __init__(self, device="cuda"):
         # load model with tokenizer
+        print("Loading MiniLM")
+        self.model = SentenceTransformer("sentence-transformers/all-MiniLM-L6-v2", device=device)
+        self.embedding_name = "minilm"
+        self.embedding_column_name = f"{self.embedding_name}_embeddings"
+        print("minilm loaded")
+
+    def add_embeddings(self, dataset, batch_size=32):
+        all_embeddings = []
+
+        for i in logging.tqdm(range(0, len(dataset), batch_size), desc="Embedding with minilm"):
+            batch = dataset[i:i + batch_size]
+            embeddings = self.model.encode(batch["text"])
+            all_embeddings.extend(embeddings)
+
+        # Add the embeddings as a new column to the dataset
+        dataset = dataset.add_column(self.embedding_column_name, all_embeddings)
+
+        return dataset
+
+
+class StellaEmbedder:
+    def __init__(self, device="cuda", multigpu=False):
+
+        # # load model with tokenizer
         print("Loading stella")
-        self.model = SentenceTransformer("dunzhang/stella_en_1.5B_v5", trust_remote_code=True, device=device).eval()
+        self.multigpu = multigpu
+        if self.multigpu:
+            self.model = SentenceTransformer("dunzhang/stella_en_1.5B_v5", model_kwargs={"torch_dtype": torch.bfloat16})
+        else:
+            self.model = SentenceTransformer("dunzhang/stella_en_1.5B_v5", trust_remote_code=True, device=device, model_kwargs={"torch_dtype": torch.bfloat16}).eval()
+
+        self.embedding_name = "stella"
+        self.embedding_column_name = f"{self.embedding_name}_embeddings"
         print("stella loaded")
 
     def add_embeddings(self, dataset, batch_size=32):
+        if self.multigpu:
+            return self.add_embeddings_multigpu(dataset, batch_size=batch_size)
+
+        # singlegpu
         stella_embeddings = []
 
         for i in logging.tqdm(range(0, len(dataset), batch_size), desc="Embedding with stella"):
@@ -348,7 +696,68 @@ class StellaEmbedder:
             stella_embeddings.extend(embeddings)
 
         # Add the embeddings as a new column to the dataset
-        dataset = dataset.add_column("stella_embeddings", stella_embeddings)
+        dataset = dataset.add_column(self.embedding_column_name, stella_embeddings)
 
         return dataset
 
+    def add_embeddings_multigpu(self, dataset, batch_size=32):
+        pool = self.model.start_multi_process_pool()
+        stella_embeddings = self.model.encode_multi_process(dataset["text"], pool=pool, batch_size=batch_size)
+        self.model.stop_multi_process_pool(pool)
+
+        # Add the embeddings as a new column to the dataset
+        dataset = dataset.add_column(self.embedding_column_name, list(stella_embeddings))
+
+        return dataset
+
+
+def load_if_exists(pickle_path):
+    if os.path.exists(pickle_path):
+        with open(pickle_path, 'rb') as f:
+            data = pickle.load(f)
+        print(f"Loaded cache from: {pickle_path}")
+        return data
+    else:
+        return None
+
+def get_or_compute_cache(cache_path, compute_fn, *args, force_recompute=False, **kwargs):
+    """
+    Generic helper to load a value from cache or compute it if not present.
+
+    Parameters:
+    - cache_path: Path to the cache file.
+    - compute_fn: Function to compute the value if cache is missing.
+    - *args, **kwargs: Arguments to pass to the compute function.
+
+    Returns:
+    - The cached or computed value.
+    """
+    if force_recompute:
+        cached_value = None
+    else:
+        cached_value = load_if_exists(cache_path)
+
+    if cached_value is None:
+        print(f"Cache not found. Computing {compute_fn.__name__}.")
+        cached_value = compute_fn(*args, **kwargs)
+        with open(cache_path, 'wb') as f:
+            pickle.dump(cached_value, f)
+        print(f"Saved cache to: {cache_path}")
+    return cached_value
+
+
+def get_ai_human_n_posts(experiment_dir, gen_i):
+
+    # how many human posts we add to each participant in generation_i
+    human_n = json.loads(
+        (experiment_dir / f"gen_{gen_i}" / "log_sample_datasets.json").read_text(encoding="UTF-8")
+    )['args']['per_participant_human_dataset_size']
+
+    if gen_i == 0:
+        gen_n = 0
+    else:
+        gen_n = json.loads(
+            (experiment_dir / f"gen_{gen_i}" / "log_sample_datasets.json").read_text(encoding="UTF-8")
+        )['args']['per_participant_ai_dataset_size']
+
+    return gen_n, human_n

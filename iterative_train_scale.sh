@@ -1,29 +1,68 @@
 #!/bin/bash
 #SBATCH -A imi@h100
 #SBATCH -C h100
+##SBATCH -A vgw@a100
+##SBATCH -C a100
 #SBATCH --cpus-per-task=24
-#SBATCH --time=4:55:59
+#SBATCH --time=19:55:59
 #SBATCH --gres=gpu:1
-#SBATCH --array=0-24 # 5 seeds
-#SBATCH -o logs/iterative_train_%A_%a.log
-#SBATCH -e logs/iterative_train_%A_%a.log
-#SBATCH -J iterative_train
-##SBATCH --qos=qos_gpu_h100-dev
+## all parts
+#SBATCH --array=0-124
+##parts 1 2 4
+##SBATCH --array=0-14,25-39,50-64,75-89,100-114
+##parts 10
+##SBATCH --array=15-19,40-44,65-69,90-94,115-119
+##parts 1 2 4 10
+##SBATCH --array=0-19,25-44,50-69,75-94,100-119
+## parts 20
+##SBATCH --array=20-24,45-49,70-74,95-99,120-124
+#SBATCH -o logs/scale_iterative_train_%A_%a.log
+#SBATCH -e logs/scale_iterative_train_%A_%a.log
+#SBATCH -J scale_iterative_train
 
 start_time=$(date +%s)
 
-cat $0
+#cat $0 # print this script
+#echo ""
+#echo "SLURM_JOB_ID: "$SLURM_JOB_ID"_"$SLURM_ARRAY_TASK_ID | tee -a $log_path
 
-echo ""
+#############
+# useful bash commands
+#############
+# average total time for generated_500_
+# grep -l "generated_500_" logs/scale_iterative_train_1700708_* | xargs grep "Total time (ft_and_gen):" | sed 's/.*(\([0-9.]*\) secs).*/\1/' | awk '{sum+=$1} END {print "Average seconds:", sum/NR}'
 
-echo "SLURM_JOB_ID: "$SLURM_JOB_ID"_"$SLURM_ARRAY_TASK_ID | tee -a $log_path
+# track done generations
+#watch -c -n 1 eval "cat logs/scale_iterative_train_1700708_*  | grep "GEN: " | sort -V | uniq -c"
 
-# 5 ratios
+# simulate run
+#for i in $(seq 15 19) ; do SLURM_ARRAY_TASK_ID=$i bash iterative_train_scale.sh ; done
+#for i in $(seq 40 44) ; do SLURM_ARRAY_TASK_ID=$i bash iterative_train_scale.sh ; done
+#for i in $(seq 65 59) ; do SLURM_ARRAY_TASK_ID=$i bash iterative_train_scale.sh ; done
+#for i in $(seq 90 94) ; do SLURM_ARRAY_TASK_ID=$i bash iterative_train_scale.sh ; done
+#for i in $(seq 115 119) ; do SLURM_ARRAY_TASK_ID=$i bash iterative_train_scale.sh ; done
+#############
+
 ratios=(0.125 0.25 0.5 0.75 1)
-ratios_len=${#ratios[@]}
+parts=(1 2 4 10 20)
 
-ratio_id=$((SLURM_ARRAY_TASK_ID % ratios_len))
-seed_id=$((SLURM_ARRAY_TASK_ID / ratios_len))
+
+ratio_len=${#ratios[@]}
+parts_len=${#parts[@]}
+
+seed_id=$((SLURM_ARRAY_TASK_ID / (ratio_len * parts_len)))
+remainder=$((SLURM_ARRAY_TASK_ID % (ratio_len * parts_len)))
+ratio_i=$((remainder % ratio_len))
+part_i=$((remainder / ratio_len))
+
+n_part=${parts[$part_i]} # Access the array element using ${}
+ratio=${ratios[$ratio_i]} # Access the array element using ${}
+echo "ratio: $ratio"
+echo "n_part: $n_part"
+echo "seed:"$seed_id
+
+gen_train_ratio=0.1
+
 
 datetime=`date +"%Y-%m-%d_%H-%M-%S"`
 datetime_nano=`date +"%Y-%m-%d_%H-%M-%S.%N"`
@@ -35,13 +74,33 @@ echo "seed:"$seed
 # human dataset size for generation 0
 per_participant_ft_dataset_size=4000
 
+
 # Define ratio array to use for calculating the generated dataset size
-per_participant_ai_dataset_size=$(echo "${ratios[$ratio_id]} * $per_participant_ft_dataset_size / 1" | bc)
+per_participant_ai_dataset_size=$(echo "$ratio * $per_participant_ft_dataset_size / 1" | bc)
 per_participant_human_dataset_size=$(( per_participant_ft_dataset_size - per_participant_ai_dataset_size ))
 
 echo "ft_size:"$per_participant_ft_dataset_size
 echo "generated_dataset_size:"$per_participant_ai_dataset_size
 echo "human_dataset_size:"$per_participant_human_dataset_size
+
+generate_n=$per_participant_ai_dataset_size
+
+if (( $(echo "$gen_train_ratio < 1" | bc -l) )); then
+    # Calculate the first term: ceil(generate_n * gen_train_ratio)
+    generate_n=$(echo "scale=10; $generate_n * $gen_train_ratio" | bc)
+    generate_n=$(echo "$generate_n / 1" | awk '{print int($1) + ($1 > int($1))}')
+
+    # Calculate the second term: ceil(250 / n_part)
+    lower_bound=$(echo "scale=10; 250 / $n_part" | bc)
+    lower_bound=$(echo "$lower_bound / 1" | awk '{print int($1) + ($1 > int($1))}')
+
+    # Cap to lower bound
+    if [ "$generate_n" -lt "$lower_bound" ]; then
+        generate_n=$lower_bound
+    fi
+fi
+
+echo "generate_n:"$generate_n
 
 ## mixed
 #mixed_models_options=(
@@ -68,17 +127,8 @@ mixed_models_options=(
 )
 model="mixed"
 
-#dataset_name="100m_tweets"
-#split="all"
-
-#dataset_name="reddit_submissions"
-#split="all"
-
 dataset_name="webis_reddit"
-split="test"
-
-#dataset_name="senator_tweets"
-#split="all"
+split="all"
 
 model_name=`echo $model | sed 's/.*unsloth--\([^\/]*\)\/snapshots.*/\1/'`
 model_tag=${model_name//\//_}
@@ -90,15 +140,15 @@ module load arch/h100
 module load python/3.11.5
 conda activate unsloth_311
 
-n_part=1
 accumulate=1
 
-#dattype="standard"
+dattype="standard"
 #dattype="hq"
-#dattype="mq"
-dattype="ld"
+#dattype="ld"
 
 epochs=1
+#max_steps=-1
+max_steps=4000
 rank=16
 alpha=16
 per_device_batch_size=16
@@ -109,8 +159,9 @@ warmup_ratio=0.00125 # 5/4000; 5 steps
 temp=1.5
 min_p=0.2
 n_generations=20
+echo "n_generations:"$n_generations
 
-exp_path=results/human_ai_ratio_dataset_${dataset_name}_type_${dattype}_participants_${n_part}/generated_${per_participant_ai_dataset_size}_human_${per_participant_human_dataset_size}_unsloth/seed_${seed}_${datetime}
+exp_path=results/scale_small_4k_train_${model_tag}_dataset_${dataset_name}_type_${dattype}_presampled_split_${split}_acc_${accumulate}_ft_size_${per_participant_ft_dataset_size}_gen_train_ratio_${gen_train_ratio}_participants_${n_part}/generated_${per_participant_ai_dataset_size}_human_${per_participant_human_dataset_size}_unsloth/seed_${seed}_${datetime}
 
 mkdir -p $exp_path
 log_path=$exp_path/log.txt
@@ -145,6 +196,7 @@ do
     --exp-path $exp_path --generation "$gen_i" --n-participants "$n_part" \
     --per-participant-human-dataset-size $current_per_participant_human_dataset_size \
     --per-participant-ai-dataset-size $current_per_participant_ai_dataset_size \
+    --gen-train-dataset-size-ratio $gen_train_ratio \
     --human-dataset $dataset_name \
     --load-presampled-human-dataset \
     --split $split \
@@ -153,15 +205,19 @@ do
     --seed "${seed}_gen_${gen_i}" 2>&1 | tee -a $log_path
 
   for part_i in $(seq 0 $((n_part-1))); do
-    echo -e "\033[32mPart: $part_i (gen:$gen_i)\033[0m"
+    echo "Part: "$part_i
 
     # Sample a random model if model == mixed
-    selected_model=$(shuf -e "${mixed_models_options[@]}" -n 1)
+    if [[ "$model" == "mixed" ]]; then
+      # Randomly select one model from the list
+      selected_model=$(shuf -e "${mixed_models_options[@]}" -n 1)
+    else
+      selected_model=$model
+    fi
+
     echo "Selected model "$selected_model
 
     save_dir=$exp_path"/gen_"$gen_i"/part_"$part_i
-
-    generate_n=$per_participant_ai_dataset_size
 
     python -u ft_and_gen.py \
         --save-dir $save_dir \
@@ -169,6 +225,7 @@ do
         --model-name $selected_model \
         --generate \
         --epochs $epochs \
+        --max-steps $max_steps \
         --rank $rank \
         --alpha $alpha \
         --per-device-batch-size $per_device_batch_size \
