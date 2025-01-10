@@ -7,10 +7,11 @@ dirs_pattern+="eval_results/results/scale_small_4k_train_mixed_dataset_webis_red
 
 #python visualize.py --directories $dirs_pattern --metric cos_diversity_stella_cap_250
 #python visualize.py --directories $dirs_pattern --metric pc_unique_posts_cap_250 --part part_0 -ip -ig 19 -igs 5 -fhr 1.0
-#python visualize.py --directories $dirs_pattern --metric cos_diversity_stella_cap_250 --part part_0 -ip -ig 19 -igs 5 -fhr 1.0
-#python visualize.py --directories $dirs_pattern --metric cos_diversity_stella_cap_250 --part part_0 -ip -ig 19 -igs 5 -fhr 1.0
-#python visualize.py --directories $dirs_pattern --metric gibberish_score_cap_250 --part part_0 -ip -ig 19 -igs 5 -fhr 1.0
-python plot_scaling_law.py --directories $dirs_pattern --metric cos_diversity_stella_cap_250 --generation 19 --smooth-n 5 --assert-n-datapoints 5
+#python visualize.py --directories $dirs_pattern --metric cos_diversity_stella_cap_250 -ip -ig 19 -igs 5 -fhr 1.0
+#python visualize.py --directories $dirs_pattern --metric cos_diversity_stella_cap_250 -ip -ig 19 -igs 5 -fhr 1.0
+python visualize.py --directories $dirs_pattern --metric gibberish_score_cap_250 -ip -ig 19 -igs 5 -fhr 1.0
+#python plot_scaling_law.py --directories $dirs_pattern --metric gibberish_score_cap_250 --generation 19 --smooth-n 5 --assert-n-datapoints 5
+#python plot_scaling_law.py --directories $dirs_pattern --metric cos_diversity_stella_cap_250 --generation 19 --smooth-n 5 --assert-n-datapoints 5
 #python plot_scaling_law.py --directories $dirs_pattern --metric llama_quality_cap_250 --generation 19 --smooth-n 5 --assert-n-datapoints 5
 
 #python plot_scaling_law.py --directories $dirs_pattern --metric cos_diversity_stella_cap_250 --generation 19 --smooth-n 5

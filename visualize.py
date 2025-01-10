@@ -1,4 +1,5 @@
 import argparse
+import os
 import warnings
 from collections import defaultdict
 import json
@@ -54,7 +55,7 @@ def label_to_color_id(label):  # label with different color_id -> different colo
     # we remove all after generated_ -> different ratios and seed have same color
     # return label.split("pop size: ")[1].split(")")[0]
 
-    # return label.split("ratio : ")[1]
+    return label
     try:
         # return label.split("(seed=")[1] # different colors
         return label.split("seed")[0]  # per seed colors
@@ -66,7 +67,7 @@ def label_to_color_id(label):  # label with different color_id -> different colo
 
 # this can be used to fix some experiment_ids to colors
 def parse_colors_dict(colors_dict):
-    # return colors_dict
+    return colors_dict
 
     for d, c in colors_dict.items():
         # colors_dict[d] = plt.cm.gray(0.3)
@@ -281,10 +282,15 @@ if __name__ == "__main__":
     color_id_to_color_dict = dict(zip(set(color_ids), all_colors))
     color_id_to_color_dict = parse_colors_dict(color_id_to_color_dict)
 
-    # load colors from cache
-    with open('.cache/colors.json', 'r') as file: loaded_colors_dict = json.load(file)
-    if loaded_colors_dict.keys() == color_id_to_color_dict.keys(): color_id_to_color_dict = loaded_colors_dict
-    with open('.cache/colors.json', 'w') as file: json.dump(color_id_to_color_dict, file, indent=4)
+    # load colors from cache (to ensure same colors in same figures)
+    if os.path.isfile(".cache/colors.json"):
+        with open('.cache/colors.json', 'r') as file:
+            loaded_colors_dict = json.load(file)
+        if loaded_colors_dict.keys() == color_id_to_color_dict.keys():
+            print("Loading colors from cache")
+            color_id_to_color_dict = loaded_colors_dict
+    with open('.cache/colors.json', 'w') as file:
+        json.dump(color_id_to_color_dict, file, indent=4)
 
     colors = [color_id_to_color_dict[color_id] for color_id in color_ids]
 
