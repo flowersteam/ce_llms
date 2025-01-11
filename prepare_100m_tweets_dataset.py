@@ -101,16 +101,37 @@ n_max = 200
 
 
 # # step: 3
-dataset = datasets.load_from_disk(f"./data/twitter_100m/prepared-100m-tweets-english-qualities-before-gpt3-{n_max}-minus-{n_min}-plus")
+# dataset = datasets.load_from_disk(f"./data/twitter_100m/prepared-100m-tweets-english-qualities-before-gpt3-{n_max}-minus-{n_min}-plus")
+#
+# dataset_hq = dataset.filter(lambda ex: ex['llama_quality'] == 2)
+# print(dataset_hq)
+# file_path = f"./data/twitter_100m/prepared-100m-tweets-english-high-quality-before-gpt3-{n_max}-minus-{n_min}-plus"
+# dataset_hq.save_to_disk(file_path)
+# print(f"Saved to: {file_path}")
+#
+# dataset_mq = dataset.filter(lambda ex: ex['llama_quality'] == 1)
+# print(dataset_mq)
+# file_path = f"./data/twitter_100m/prepared-100m-tweets-english-mid-quality-before-gpt3-{n_max}-minus-{n_min}-plus"
+# dataset_mq.save_to_disk(file_path)
+# print(f"Saved to: {file_path}")
 
-dataset_hq = dataset.filter(lambda ex: ex['llama_quality'] == 2)
-print(dataset_hq)
+# std
+file_path = f"./data/twitter_100m/prepared-100m-tweets-english-qualities-before-gpt3-{n_max}-minus-{n_min}-plus"
+std = datasets.load_from_disk(file_path)
+std = std.filter(lambda batch: [t.count("#") < 3 and t.count("@") < 3 for t in batch['text']], batched=True)
+file_path = f"./data/twitter_100m/prepared-100m-tweets-english-qualities-cl-before-gpt3-{n_max}-minus-{n_min}-plus"
+std.save_to_disk(file_path)
+
+# hq
 file_path = f"./data/twitter_100m/prepared-100m-tweets-english-high-quality-before-gpt3-{n_max}-minus-{n_min}-plus"
-dataset_hq.save_to_disk(file_path)
-print(f"Saved to: {file_path}")
+hq = datasets.load_from_disk(file_path)
+hq = hq.filter(lambda batch: [t.count("#") < 3 and t.count("@") < 3 for t in batch['text']], batched=True)
+file_path = f"./data/twitter_100m/prepared-100m-tweets-english-high-quality-cl-before-gpt3-{n_max}-minus-{n_min}-plus"
+hq.save_to_disk(file_path)
 
-dataset_mq = dataset.filter(lambda ex: ex['llama_quality'] == 1)
-print(dataset_mq)
+# lq
 file_path = f"./data/twitter_100m/prepared-100m-tweets-english-mid-quality-before-gpt3-{n_max}-minus-{n_min}-plus"
-dataset_mq.save_to_disk(file_path)
-print(f"Saved to: {file_path}")
+mq = datasets.load_from_disk(file_path)
+mq = mq.filter(lambda batch: [t.count("#") < 3 and t.count("@") < 3 for t in batch['text']], batched=True)
+file_path = f"./data/twitter_100m/prepared-100m-tweets-english-mid-quality-cl-before-gpt3-{n_max}-minus-{n_min}-plus"
+mq.save_to_disk(file_path)

@@ -113,24 +113,26 @@ if __name__ == "__main__":
         # extract number of participants
         try:
             score = res[args.metric][args.generation]
-            if type(score) == list:
-                score = np.mean(score)
-
-            if args.smooth_n > 1:
-                end_ind = args.generation + 1
-                start_ind = end_ind - args.smooth_n
-
-                try:
-                    # for diversity
-                    score = float(np.mean([res[args.metric][g] for g in range(start_ind, end_ind)]))
-                except:
-                    # for quality
-                    score = float(np.mean([res[args.metric][g] for g in range(start_ind, end_ind)]))
-
-
         except:
             warnings.warn(f"Metric {args.metric} generation {args.generation} not found in {dir}")
             continue
+
+        if type(score) == list:
+            try:
+                score = np.mean(score)
+            except:
+                scores_no_nan = [s for s in score if s is not None]
+                n_nans = len(score) - len(scores_no_nan)
+                warnings.warn(f"Scores cannot be averaged ({n_nans} Nones found) for Metric {args.metric} generation {args.generation} in {dir}. ")
+                continue
+
+                score = np.mean(scores_no_nan)
+                # warnings.warn(f"Scores cannot be averaged (skipping {n_nans} Nones) for Metric {args.metric} generation {args.generation} in {dir}. ")
+
+        if args.smooth_n > 1:
+            end_ind = args.generation + 1
+            start_ind = end_ind - args.smooth_n
+            score = float(np.mean([res[args.metric][g] for g in range(start_ind, end_ind)]))
 
         if args.normalize:
             # score of input dataset at generation 0
@@ -162,37 +164,23 @@ if __name__ == "__main__":
         xs_sc, ys_sc = zip(*itertools.chain(*[[(x, y_) for y_ in ratio_data[x]] for x in xs]))
         all_xs.extend(xs_sc)
 
-        if args.kl:
-            # the one with the most participants
-            true_distr = ratio_data[max(ratio_data.keys())]
-            # kls = [np.abs(cohend(d1=true_distr, d2=ratio_data[x])) for x in xs]
-            # kls = [wasserstein_distance(u_values=true_distr, v_values=ratio_data[x]) for x in xs]
-            kls = [ttest_ind(true_distr, ratio_data[x]).pvalue for x in xs]
-            plt.plot(xs, kls, label=f"ratio: {ratio}", color=color)
+        ys = np.array([np.mean(ratio_data[x]) for x in xs])
+        plt.plot(xs, ys, label=f"ratio: {ratio}", color=color)
 
-            plt.ylabel(f"cohen ({args.metric})")
+        if args.assert_n_datapoints:
+            assert len(xs_sc) == args.assert_n_datapoints * len(xs), f" {len(xs_sc)} is not {args.assert_n_datapoints} * {len(xs)}"
 
-        else:
+        plt.scatter(xs_sc, ys_sc, color=color, s=5, marker='x', linewidths=0.5)
 
-            ys = np.array([np.mean(ratio_data[x]) for x in xs])
+        try:
+            shade_ys = np.array([float(sem(ratio_data[x])) for x in xs])
+            # shade_ys = np.array([float(np.std(ratio_data[x])) for x in xs])
+            plt.fill_between(xs, ys - shade_ys, ys + shade_ys, alpha=0.2, color=color)
+        except:
+            pass
+        plt.scatter(xs, ys, color=color, s=8)
 
-            plt.plot(xs, ys, label=f"ratio: {ratio}", color=color)
-
-            if args.assert_n_datapoints:
-                assert len(xs_sc) == args.assert_n_datapoints * len(xs)
-
-
-            plt.scatter(xs_sc, ys_sc, color=color, s=5, marker='x', linewidths=0.5)
-
-            try:
-                shade_ys = np.array([float(sem(ratio_data[x])) for x in xs])
-                # shade_ys = np.array([float(np.std(ratio_data[x])) for x in xs])
-                plt.fill_between(xs, ys - shade_ys, ys + shade_ys, alpha=0.2, color=color)
-            except:
-                pass
-            plt.scatter(xs, ys, color=color, s=8)
-
-            plt.ylabel(args.metric)
+        plt.ylabel(args.metric)
 
     uniq_xs = sorted(set(all_xs))
 
