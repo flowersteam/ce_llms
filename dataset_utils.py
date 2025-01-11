@@ -159,7 +159,7 @@ def get_twitter_instructions(n):
 #     return {"instruction": [f"Generate a twitter post."] * len(batch['text'])}
 #     # return {"instruction": [f"Generate a post for the r/{sub} subreddit." for sub in batch['subreddit']]}
 
-def load_senator_tweets_dataset(load_n=None, load_frac=1.0, lean=None, seed=1, split='train', dataset_type="standard"):
+def load_senator_tweets_dataset_old(load_n=None, load_frac=1.0, lean=None, seed=1, split='train', dataset_type="standard"):
 
     dataset_name = "m-newhauser/senator-tweets"
     print(f"Loading twitter dataset: {dataset_name}")
@@ -235,13 +235,13 @@ def load_reddit_submissions_dataset(load_n=None, load_frac=1.0, lean=None, seed=
 def load_100m_tweets_dataset(load_n=None, load_frac=1.0, lean=None, seed=1, split='train', dataset_type="standard"):
 
     if dataset_type == "hq":
-        dataset_path = "data/twitter_100m/prepared-100m-tweets-english-high-quality-before-gpt3-200-minus-20-plus/"
+        dataset_path = "data/twitter_100m/prepared-100m-tweets-english-high-quality-cl-before-gpt3-200-minus-20-plus/"
     elif dataset_type == "mq":
-        dataset_path = f"data/twitter_100m/prepared-100m-tweets-english-mid-quality-before-gpt3-200-minus-20-plus/"
+        dataset_path = f"data/twitter_100m/prepared-100m-tweets-english-mid-quality-cl-before-gpt3-200-minus-20-plus/"
     elif dataset_type == "ld":
         dataset_path = ...
     elif dataset_type == "standard":
-        dataset_path = f"data/twitter_100m/prepared-100m-tweets-english-qualities-before-gpt3-200-minus-20-plus/"
+        dataset_path = f"data/twitter_100m/prepared-100m-tweets-english-qualities-cl-before-gpt3-200-minus-20-plus/"
     else:
         raise ValueError(f"Type {dataset_type} not recognized.")
 
@@ -384,54 +384,43 @@ def load_human_dataset(dataset_name=None, **kwargs):
     return human_dataset
 
 
-# legacy: use senator_tweets
-def load_twitter_dataset(cache_dir='data', load_n=None, load_frac=1.0, lean=None, seed=1):
-    dataset_name = "m-newhauser/senator-tweets"
-    print(f"Loading dataset {dataset_name}")
+# before GPT-3
+def load_senator_tweets_dataset(load_n=None, load_frac=1.0, lean=None, seed=1, split='train', dataset_type="standard"):
 
-    feat_sentiment = ClassLabel(num_classes=2, names=["Liberal", "Conservative"])
+    if dataset_type == "hq":
+        dataset_path = "data/senator_tweets/prepared-high-quality-senator-tweets/"
+    elif dataset_type == "mq":
+        dataset_path = "data/senator_tweets/prepared-mid-quality-senator-tweets/"
+    elif dataset_type == "ld":
+        dataset_path = ...
+    elif dataset_type == "standard":
+        dataset_path = "data/senator_tweets/prepared-senator-tweets/"
+    else:
+        raise ValueError(f"Type {dataset_type} not recognized.")
 
-    # dataset_savepath = os.path.join(
-    #     cache_dir, "dataset_cache",
-    #     f"twitter_load_n_{load_n}_lean_{lean}_{get_current_file_hash()}.save"
-    # )
-    dataset_savepath = os.path.join(
-        cache_dir, "dataset_cache",
-        f"twitter_lean_{lean}.save"
-    )
-
-    if os.path.exists(dataset_savepath):
-        print(f"Loading dataset from cache in: {dataset_savepath}")
-        dataset = load_from_disk(dataset_savepath)
+    print(f"Loading senator tweets dataset from {dataset_path}")
+    if split == "all":
+        dataset_all = load_from_disk(dataset_path)
+        dataset = concatenate_datasets(list(dataset_all.values()))
 
     else:
-        print("Loading dataset from Huggingface")
-        party_2_lean = {
-            "Democrat": "Liberal",
-            "Republican": "Conservative"
-        }
-        # Prepare data
-        dataset = load_dataset(dataset_name, cache_dir=cache_dir, split='train')
+        dataset = load_from_disk(dataset_path)[split]
 
-        if lean is not None:
-            dataset = dataset.filter(lambda examples: [party_2_lean.get(p, p) == lean for p in examples['party']], batched=True, load_from_cache_file=False)
+    print(f"Dataset loaded. Size: {len(dataset)}")
 
-        # clean dataset
-        dataset = dataset.map(remove_links, batched=True, desc="Removing links", load_from_cache_file=False)
-        dataset = dataset.filter(lambda examples: [len(word_tokenize(t)) > 10 for t in examples['text']], batched=True, load_from_cache_file=False)
+    if load_n is not None or load_frac != 1.0:
+        if load_n is None:
+            # load frac != 1.0
+            load_n = int(len(dataset)*load_frac)
 
-        # save dataset
-        dataset.save_to_disk(dataset_savepath)
-        print(f"Dataset saved to: {dataset_savepath}")
+        dataset = dataset.shuffle(seed=seed)
+        sample = dataset.select(range(load_n))
+    else:
+        # full dataset
+        sample = dataset.shuffle(seed=seed)
 
-    if load_n is not None:
-        load_frac = load_n / len(dataset)
-        dataset = dataset.train_test_split(test_size=1-load_frac, shuffle=True, seed=seed, stratify_by_column="Political Lean")['train']
+    print("Creating instructions for sample")
+    sample = sample.add_column("instruction", get_twitter_instructions(len(sample)))
+    # sample = sample.map(create_twitter_instructions, batched=True, desc="Creating instructions for sample", load_from_cache_file=False, batch_size=len(sample))
 
-    elif load_frac != 1.0:
-        dataset = dataset.train_test_split(test_size=1-load_frac, shuffle=True, seed=seed, stratify_by_column="Political Lean")['train']
-
-
-    return dataset, None, None
-
-
+    return sample, None, None

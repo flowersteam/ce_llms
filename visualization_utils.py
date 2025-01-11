@@ -15,7 +15,6 @@ from scipy.spatial import ConvexHull
 from scipy.stats import sem
 import imageio
 import seaborn as sns
-from dataset_utils import load_twitter_dataset
 
 
 @contextmanager
@@ -75,7 +74,7 @@ def plot_boxes_and_save(
 def plot_and_save(
         ys,
         labels,
-        ylabel=None, xlabel=None, yticks=None,
+        ylabel=None, xlabel=None, yticks=None, ylim=None,
         violin=False, linewidths=None, linestyles=None, colors=None, fontsize=10, log=False,
         save_path=None, no_show=True,
         assert_n_datapoints=None, scatter=False,
@@ -173,6 +172,10 @@ def plot_and_save(
 
     if log:
         plt.gca().set_yscale('log')
+
+    if ylim:
+        plt.gca().set_ylim(ylim)
+
     plt.yticks(fontsize=fontsize)
     plt.xticks(fontsize=fontsize)
 
@@ -187,6 +190,8 @@ def plot_and_save(
     if save_path:
         plt.savefig(save_path+".png", dpi=300)
         print(f"Saved to: {save_path}")
+
+    plt.tight_layout()
     
     if not no_show:
         plt.show()
