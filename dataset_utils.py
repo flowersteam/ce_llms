@@ -152,8 +152,11 @@ def load_news_dataset(cache_dir=None, load_n=None, load_frac=1.0, lean=None, see
     return dataset, labels, feat_sentiment
 
 
-def get_twitter_instructions(n):
-    return [f"Generate a twitter post."] * n
+def get_twitter_instructions(n, prompt = 'neutral'):
+    if prompt == 'political':
+        return [f"Generate a twitter post about a political topic."] * n
+    else:
+        return [f"Generate a twitter post."] * n
 
 # def create_twitter_instructions(batch):
 #     return {"instruction": [f"Generate a twitter post."] * len(batch['text'])}
@@ -335,7 +338,7 @@ def remove_trailling_hashtags(batch):
     return {"text": [re.sub(r"(?:\s*#\w+)+$", "", t) for t in batch['text']]}
 
 
-def get_instructions(dataset_name, n=250):
+def get_instructions(dataset_name, n=250, prompt='neutral'):
     if dataset_name is None:
         raise ValueError("dataset_name is not provided")
 
@@ -343,7 +346,7 @@ def get_instructions(dataset_name, n=250):
         instructions = get_reddit_instructions(n=n)
 
     elif dataset_name == "senator_tweets":
-        instructions = get_twitter_instructions(n=n)
+        instructions = get_twitter_instructions(n=n, prompt=prompt)
 
     elif dataset_name == "100m_tweets":
         instructions = get_twitter_instructions(n=n)
@@ -387,7 +390,19 @@ def load_human_dataset(dataset_name=None, **kwargs):
 # before GPT-3
 def load_senator_tweets_dataset(load_n=None, load_frac=1.0, lean=None, seed=1, split='train', dataset_type="standard"):
 
-    if dataset_type == "hq":
+    if dataset_type == '50l50r':
+         dataset_path = "/lustre/fsn1/projects/rech/imi/uov75at/data/senator_tweets/prepared-50-50-polarization-political-dataset/"
+    elif dataset_type == "25l75r":
+        dataset_path = "/lustre/fsn1/projects/rech/imi/uov75at/data/senator_tweets/prepared-25-75-polarization-political-dataset/"
+    elif dataset_type == "75l25r":
+        dataset_path = "/lustre/fsn1/projects/rech/imi/uov75at/data/senator_tweets/prepared-75-25-polarization-political-dataset/"
+    elif dataset_type == "0l100r":
+        dataset_path = "/lustre/fsn1/projects/rech/imi/uov75at/data/senator_tweets/prepared-0-100-polarization-political-dataset/"
+    elif dataset_type == "100l0r":
+        dataset_path = "/lustre/fsn1/projects/rech/imi/uov75at/data/senator_tweets/prepared-100-0-polarization-political-dataset/"
+        
+
+    elif dataset_type == "hq":
         dataset_path = "data/senator_tweets/prepared-high-quality-senator-tweets/"
     elif dataset_type == "mq":
         dataset_path = "data/senator_tweets/prepared-mid-quality-senator-tweets/"
@@ -402,6 +417,8 @@ def load_senator_tweets_dataset(load_n=None, load_frac=1.0, lean=None, seed=1, s
     if split == "all":
         dataset_all = load_from_disk(dataset_path)
         dataset = concatenate_datasets(list(dataset_all.values()))
+    elif split == "none":
+        dataset = load_from_disk(dataset_path)
 
     else:
         dataset = load_from_disk(dataset_path)[split]

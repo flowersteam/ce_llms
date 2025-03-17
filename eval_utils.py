@@ -26,6 +26,7 @@ import pandas as pd
 
 import torch
 from transformers import BertTokenizer, BertModel
+from pol_classifier_cleaned import evaluate_single_text
 
 def get_words(text):
     return word_tokenize(text)
@@ -43,6 +44,7 @@ client=None
 
 def compute_quick_metrics(input_d):
     results = dict()
+    results['text'] = list(input_d['text'])
     results['ttr'] = [calculate_ttr(tx) for tx in input_d['text']]
     results['mttr'] = calculate_ttr(" ".join(input_d['text']))
 
@@ -64,7 +66,8 @@ def compute_quick_metrics(input_d):
 
 
 def llama_pol_lean(texts):
-    scores = []
+    leans_list, generation_list, lprob_list, prob_list = [], [], [], []
+    
     global client
     if client is None:
         client = OpenAI(
@@ -74,13 +77,84 @@ def llama_pol_lean(texts):
 
     for t_i, text in enumerate(texts):
         if t_i % 50 == 0 and t_i > 0:
-            print(f"llama quality: [{t_i}/{len(texts)}]")
+            print(f"llama political lean: [{t_i}/{len(texts)}]")
+        
+        leans, generation, lprob, prob = evaluate_single_text(text, model = 'preloaded', client = client)
+        leans_list.append(leans[0])
+        generation_list.append(generation)
+        lprob_list.append(lprob)
+        prob_list.append(prob)
 
-        prompt = "You are a political lean judge.\n" + \
-                 "Judge the political lean of a given internet post and reply ONLY with a letter L, N, or R.\n" + \
-                 "\tL - left leaning\n\tN - neutral leaning\n\tR - right leaning\n\n" + \
-                 f"Here is the post: {text}\n\n" + \
-                 "Reply ONLY with the letter (L,N,R). DO NO reply with a sentence."
+    return leans_list
+
+
+def llama_pol_lean_3D(texts):
+    leans_list, generation_list, lprob_list, prob_list = [], [], [], []
+    
+    global client
+    if client is None:
+        client = OpenAI(
+            api_key="EMPTY",
+            base_url="http://localhost:8000/v1",
+        )
+
+    for t_i, text in enumerate(texts):
+        if t_i % 50 == 0 and t_i > 0:
+            print(f"llama political lean: [{t_i}/{len(texts)}]")
+        
+        leans, generation, lprob, prob = evaluate_single_text(text, model = 'preloaded', client = client)
+        leans_list.append(leans[0])
+        generation_list.append(generation)
+        lprob_list.append(lprob)
+        prob_list.append(prob)
+
+    
+
+    return prob_list
+
+def llama_pol_lean_scale(texts):
+    leans_list, generation_list, lprob_list, prob_list = [], [], [], []
+    
+    global client
+    if client is None:
+        client = OpenAI(
+            api_key="EMPTY",
+            base_url="http://localhost:8000/v1",
+        )
+
+    for t_i, text in enumerate(texts):
+        if t_i % 50 == 0 and t_i > 0:
+            print(f"llama political lean: [{t_i}/{len(texts)}]")
+        
+        leans, generation, lprob, prob = evaluate_single_text(text, model = 'preloaded', client = client, scale_100=True)
+        leans_list.append(leans[0])
+        generation_list.append(generation)
+        lprob_list.append(lprob)
+        prob_list.append(prob)
+
+    
+
+    return generation_list
+
+def llama_is_political(texts):
+    scores = []
+    total_tokens = 0
+    global client
+    if client is None:
+        client = OpenAI(
+            api_key="EMPTY",
+            base_url="http://localhost:8000/v1",
+        )
+
+    for t_i, text in enumerate(texts):
+        if t_i % 50 == 0 and t_i > 0:
+            print(f"llama is_political: [{t_i}/{len(texts)}]")
+
+        prompt = "You are an expert in poltical text analysis.\n" + \
+                 "Your task is to decide if a text is about a political topic or not." + \
+                 "To reply, answer '0' if the text is not about a political topic, and '1' if the text is about a political topic."+ \
+                 f"Here is the text: {text}\n\n" + \
+                 "Reply ONLY with 0 or 1. DO NO reply with text."
 
         # completion = client.beta.chat.completions.parse(
         completion = client.chat.completions.create(
@@ -97,8 +171,8 @@ def llama_pol_lean(texts):
         score = None
         for tlp in completion.choices[0].logprobs.content[0].top_logprobs:
             token = tlp.token
-            if token in ["L", "N", "R"]:
-                score = {"L": -1, "N": 0, "R": 1}[token]
+            if token.isdigit():
+                score = int(token)
                 break
 
         scores.append(score)
