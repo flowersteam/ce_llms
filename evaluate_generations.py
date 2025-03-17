@@ -27,6 +27,9 @@ parser.add_argument("--gib", action="store_true", help="Compute gibberish score"
 parser.add_argument("--pol", action="store_true", help="Compute political lean")
 parser.add_argument("--tox", action="store_true", help="Compute toxicity")
 parser.add_argument("--pos", action="store_true", help="Compute positivity")
+parser.add_argument("--llama-pol-lean", action="store_true", help="Compute political lean")
+parser.add_argument("--llama-pol-lean-scale", action="store_true", help="Compute political lean")
+parser.add_argument("--llama-is-pol", action="store_true", help="Whether text is political")
 parser.add_argument("--cap", type=int, default=250)
 parser.add_argument("--n-samples-to-show", type=int, default=0, help="Show n random samples")
 parser.add_argument("--visualize-datasets", action="store_true", help="Visualize the datasets")
@@ -35,6 +38,8 @@ parser.add_argument('--generations', nargs='+', type=int, help='Generations to e
 args = parser.parse_args()
 print(args)
 
+if args.cap == -1:
+    args.cap = None
 print(f"Participant: {args.participant}")
 seed_dir = Path(args.seed_dir)
 
@@ -125,9 +130,27 @@ if args.input:
 
     if args.gib:
         results[f'input_gibberish_score_cap_{n_samples_cap}'][0] = get_or_compute_cache(
-            cache_path=str(cache_dir / f'gibberish_score_cap_{n_samples_cap}_gen_0_part_{args.participant}.pickle'),
+            cache_path=str(cache_dir / f'gibberish_score_cap_{n_samples_cap}_input_gen_0_part_{args.participant}.pickle'),
             compute_fn=get_gibberish_scores, texts=capped_input_d['text']
         )
+    
+    if args.llama_pol_lean:
+        results[f'input_llama_pol_cap_{n_samples_cap}'][0] = get_or_compute_cache(
+            cache_path=str(cache_dir / f'llama_pol_cap_{n_samples_cap}_input_gen_0_part_{args.participant}.pickle'),
+            compute_fn=llama_pol_lean_3D, texts=capped_input_d['text']
+        )
+    if args.llama_pol_lean_scale:
+        results[f'input_llama_pol_cap_{n_samples_cap}'][0] = get_or_compute_cache(
+            cache_path=str(cache_dir / f'llama_pol_scale_cap_{n_samples_cap}_input_gen_0_part_{args.participant}.pickle'),
+            compute_fn=llama_pol_lean_scale, texts=capped_input_d['text']
+        )
+    if args.llama_is_pol:
+        results[f'input_llama_is_pol_cap_{n_samples_cap}'][0] = get_or_compute_cache(
+            cache_path=str(cache_dir / f'llama_is_pol_cap_{n_samples_cap}_input_gen_0_part_{args.participant}.pickle'),
+            compute_fn=llama_is_political, texts=capped_input_d['text']
+        )
+
+    
 
 
 # output datasets
@@ -209,7 +232,7 @@ for d_gen_i, d in all_datasets_capped.items():
     # quick metrics
     print("Computing quick metrics")
     quick_metrics_results = get_or_compute_cache(
-        cache_path=str(cache_dir / f'quick_metrics_cap_{n_samples_cap}_gen_{d_gen_i}_part_{args.participant}.pickle'),
+        cache_path=str(cache_dir / f'quick_metrics_with_text_cap_{n_samples_cap}_gen_{d_gen_i}_part_{args.participant}.pickle'),
         compute_fn=compute_quick_metrics, input_d=d
     )
 
@@ -274,12 +297,23 @@ for d_gen_i, d in all_datasets_capped.items():
             compute_fn=get_toxicity_batch, texts=d['text'], batch_size=1024
         )
 
-    if args.pol:
+    if args.llama_pol_lean:
         results[f'llama_pol_cap_{n_samples_cap}'][d_gen_i] = get_or_compute_cache(
             cache_path=str(cache_dir / f'llama_pol_cap_{n_samples_cap}_gen_{d_gen_i}_part_{args.participant}.pickle'),
-            compute_fn=llama_pol_lean, texts=d['text']
+            compute_fn=llama_pol_lean_3D, texts=d['text']
         )
 
+    if args.llama_pol_lean_scale:
+        results[f'llama_pol_cap_{n_samples_cap}'][d_gen_i] = get_or_compute_cache(
+            cache_path=str(cache_dir / f'llama_pol_scale_cap_{n_samples_cap}_gen_{d_gen_i}_part_{args.participant}.pickle'),
+            compute_fn=llama_pol_lean_scale, texts=d['text']
+        )
+
+    if args.llama_is_pol:
+        results[f'llama_is_pol_cap_{n_samples_cap}'][d_gen_i] = get_or_compute_cache(
+            cache_path=str(cache_dir / f'llama_is_pol_cap_{n_samples_cap}_gen_{d_gen_i}_part_{args.participant}.pickle'),
+            compute_fn=llama_is_political, texts=d['text']
+        )
 
 results_path = eval_save_dir / 'results.json'
 os.makedirs(results_path.parent, exist_ok=True)

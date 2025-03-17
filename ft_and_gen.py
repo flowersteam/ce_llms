@@ -45,7 +45,7 @@ if __name__ == "__main__":
     parser.add_argument('--dataset-name', type=str, help='The dataset to use for instructions for generation.')
     parser.add_argument('--split', type=str, default="train")
     parser.add_argument('--dataset-type', type=str, default="standard", help='Use only with reddit (ld, hq, standard)')
-
+    parser.add_argument('--prompt', type=str, default='neutral', help='Prompt for generation')
     args = parser.parse_args()
     print("Args:", args)
 
@@ -113,7 +113,7 @@ if __name__ == "__main__":
 
     # Generate
     ###########
-    all_instructions = get_instructions(dataset_name=args.dataset_name, n=args.gen_n)
+    all_instructions = get_instructions(dataset_name=args.dataset_name, n=args.gen_n, prompt=args.prompt)
 
     start_time_generate = time.time()
 
