@@ -1,3 +1,5 @@
+import nltk
+from collections import Counter
 import numpy as np
 import warnings
 import time
@@ -16,12 +18,16 @@ from sklearn.metrics import log_loss
 
 from Levenshtein import ratio
 from scipy.spatial.distance import pdist
+from scipy.stats import entropy
 
 from nltk.sentiment.vader import SentimentIntensityAnalyzer
 
 from detoxify import Detoxify
 
+from tqdm import tqdm
+
 from langkit import extract, light_metrics
+from fast_bleu import SelfBLEU as fast_SelfBLEU
 import pandas as pd
 
 import torch
@@ -39,35 +45,136 @@ def num_unique_words(text):
 
 from openai import AzureOpenAI, OpenAI
 import os
-client=None
+client = None
+
+import concurrent.futures
+from sacrebleu import BLEU
+
+from multiprocessing import Pool
+from functools import partial
+from sacrebleu.metrics import BLEU
+
+
+def calculate_single_bleu(idx, completion_sequences, max_ngram_order=4):
+    hypothesis = completion_sequences[idx]
+    references = completion_sequences[:idx] + completion_sequences[idx + 1:]
+    score = BLEU(effective_order=True, max_ngram_order=max_ngram_order).sentence_score(
+        hypothesis=hypothesis,
+        references=references
+    ).score / 100
+    return score
+
+
+def selfBleu_parallel(texts, n_procs=4, max_ngram_order=4):
+    completion_sequences = [t.strip() for t in texts if t.strip()]
+
+    calc_bleu_partial = partial(
+        calculate_single_bleu, completion_sequences=completion_sequences, max_ngram_order=max_ngram_order
+    )
+
+    indices = range(len(completion_sequences))
+
+    with Pool(processes=n_procs) as pool:
+        scores = pool.map(calc_bleu_partial, indices)
+
+    return sum(scores) / len(scores)
+
+def compute_selfbleu_parallel(texts, n_procs=16, max_ngram_order=4):
+    sb = selfBleu_parallel(texts, n_procs=n_procs, max_ngram_order=max_ngram_order)
+    div_sb = 1 - sb
+    return sb, div_sb
+
+
+def selfBleu(texts):
+    completion_sequences = [t.strip() for t in texts if t.strip()]
+
+    if len(completion_sequences) <= 1:
+        return 0
+
+    scores = []
+    for i in range(len(completion_sequences)):
+        hypothesis = completion_sequences[i]
+        references = completion_sequences[:i] + completion_sequences[i + 1:]
+
+        # Enable `effective_order` for sentence-level BLEU.
+        score = BLEU(effective_order=True).sentence_score(hypothesis=hypothesis, references=references).score / 100
+        scores.append(score)
+    return sum(scores) / len(scores)
+
+
+def compute_selfbleu(texts):
+    sb = selfBleu(texts)
+    div_sb = 1 - sb
+    return sb, div_sb
+
+
+def compute_selfbleu_fast(texts):
+    bl = fast_SelfBLEU(texts)
+    sb = bl.get_score(texts)['trigram']
+    div_sb = 1 - sb
+    return sb, div_sb
 
 
 def compute_quick_metrics(input_d):
     results = dict()
+
+    s=time.time()
     results['text'] = list(input_d['text'])
-    results['ttr'] = [calculate_ttr(tx) for tx in input_d['text']]
-    results['mttr'] = calculate_ttr(" ".join(input_d['text']))
+    print(f"Time: {time.time()-s}")
 
+    print("text len")
+    s=time.time()
+    results['text_len'] = [len(t) for t in input_d['text']]
+    print(f"Time: {time.time()-s}")
+
+    print("ttr")
+    s=time.time()
+    ttr_truncate_size = 150
+    truncated_texts = [tx[:ttr_truncate_size] for tx in input_d['text']]
+    results['post_ttr_truncated_len'] = [len(tx) for tx in truncated_texts]
+    results['ttr'] = [calculate_ttr(tx) for tx in truncated_texts]
+    print(f"Time: {time.time()-s}")
+
+    print("n_chars_per_post")
+    s=time.time()
     results['n_chars_per_post'] = [len(t) for t in input_d['text']]
+    print(f"Time: {time.time()-s}")
 
-    words_per_post = [get_words(t) for t in input_d['text']]
-    results['n_words_per_post'] = [len(wrds) for wrds in words_per_post]
-    results['n_unique_words_per_post'] = [len(set(wrds)) for wrds in words_per_post]
+    # print("words_per_post")
+    # s=time.time()
+    # words_per_post = [get_words(t) for t in input_d['text']]
+    # results['n_words_per_post'] = [len(wrds) for wrds in words_per_post]
+    # results['n_unique_words_per_post'] = [len(set(wrds)) for wrds in words_per_post]
+    # print(f"Time: {time.time()-s}")
 
+    print("n_words_total")
+    s=time.time()
     all_words = get_words(" ".join(input_d['text']))
-    results[f'n_words_total'] = len(all_words)
+    # n_words_total = len(all_words)
+    # results[f'n_words_total'] = n_words_total
     results[f'n_unique_words_total'] = len(set(all_words))
+    print(f"Time: {time.time()-s}")
 
+    print("unique")
+    s=time.time()
     results['n_unique_posts'] = len(set(input_d['text']))
     results['pc_unique_posts'] = len(set(input_d['text'])) / len(input_d['text'])
-    results['aggregate_reading_level'] = aggregate_reading_level(input_d['text'])
+    print(f"Time: {time.time()-s}")
+
 
     return results
+
+def compute_word_entropy(d):
+    all_words = get_words(" ".join(d['text']))
+    n_words_total = len(all_words)
+    word_frequencies = [cnt/n_words_total for w, cnt in Counter(all_words).items()]
+    return entropy(word_frequencies)
+
 
 
 def llama_pol_lean(texts):
     leans_list, generation_list, lprob_list, prob_list = [], [], [], []
-    
+
     global client
     if client is None:
         client = OpenAI(
@@ -78,7 +185,7 @@ def llama_pol_lean(texts):
     for t_i, text in enumerate(texts):
         if t_i % 50 == 0 and t_i > 0:
             print(f"llama political lean: [{t_i}/{len(texts)}]")
-        
+
         leans, generation, lprob, prob = evaluate_single_text(text, model = 'preloaded', client = client)
         leans_list.append(leans[0])
         generation_list.append(generation)
@@ -90,7 +197,7 @@ def llama_pol_lean(texts):
 
 def llama_pol_lean_3D(texts):
     leans_list, generation_list, lprob_list, prob_list = [], [], [], []
-    
+
     global client
     if client is None:
         client = OpenAI(
@@ -101,20 +208,20 @@ def llama_pol_lean_3D(texts):
     for t_i, text in enumerate(texts):
         if t_i % 50 == 0 and t_i > 0:
             print(f"llama political lean: [{t_i}/{len(texts)}]")
-        
+
         leans, generation, lprob, prob = evaluate_single_text(text, model = 'preloaded', client = client)
         leans_list.append(leans[0])
         generation_list.append(generation)
         lprob_list.append(lprob)
         prob_list.append(prob)
 
-    
+
 
     return prob_list
 
 def llama_pol_lean_scale(texts):
     leans_list, generation_list, lprob_list, prob_list = [], [], [], []
-    
+
     global client
     if client is None:
         client = OpenAI(
@@ -125,14 +232,14 @@ def llama_pol_lean_scale(texts):
     for t_i, text in enumerate(texts):
         if t_i % 50 == 0 and t_i > 0:
             print(f"llama political lean: [{t_i}/{len(texts)}]")
-        
+
         leans, generation, lprob, prob = evaluate_single_text(text, model = 'preloaded', client = client, scale_100=True)
         leans_list.append(leans[0])
         generation_list.append(generation)
         lprob_list.append(lprob)
         prob_list.append(prob)
 
-    
+
 
     return generation_list
 
@@ -181,7 +288,6 @@ def llama_is_political(texts):
 
 
 
-
 def llama_is_english(texts):
     scores = []
     total_tokens = 0
@@ -199,7 +305,7 @@ def llama_is_english(texts):
         prompt = "You will receive a text and have to judge if it's in english and reply ONLY with a integer from 0 or 1.\n" + \
                  "\t0 - text is not in english \n\t1 - text is in english\n\n" + \
                  f"Here is the post: {text}\n\n" + \
-                 "Reply ONLY with the integer (0,1). DO NO reply with text."
+                 "Reply ONLY with the integer (0,1). DO NOT reply with text."
 
         # completion = client.beta.chat.completions.parse(
         completion = client.chat.completions.create(
@@ -224,11 +330,59 @@ def llama_is_english(texts):
 
     return scores
 
+def llama_quality_gibberish(texts):
+    prompt = "You are a text quality judge. \n" + \
+             "Classify the text into one of the following 5 levels of quality:\n" + \
+             "\t- 1. Noise: Gibberish at the zero level where even the different constituents of the input phrase (words) do not hold any meaning independently.\n" + \
+             "\t\tFor example: dfdfer fgerfow2e0d qsqskdsd djksdnfkff swq.\n" + \
+             "\t- 2. Word Salad: Gibberish at level 1 where words make sense independently, but when looked at the bigger kpicture (the phrase) any meaning is not depicted.\n" + \
+             "\t\tFor example: 22 madhur old punjab pickle chennai\n" + \
+             "\t- 3. Mild gibberish: Gibberish at level 2 where there is a part of the sentence that has grammatical errors, word sense errors, or any syntactical abnormalities, which leads the sentence to miss out on a coherent meaning.\n" + \
+             "\t\tFor example: Madhur study in a teacher\n" + \
+             "\t- 4. Clean: This category represents a set of words that form a complete and meaningful sentence on its own.\n" + \
+             "\t\tFor example: I love this website\n" + \
+             "\t- 5. High quality: The text is of very high quality and style. Text at the level of a scientific article or literary works.\n" + \
+             "\t\tFor example: If more of us valued food and cheer and song above hoarded gold, it would be a merrier world.\n" + \
+             "\nJudge the quality of a given internet post and reply ONLY with a integer from 1-5 denoting the level quality.\n" + \
+             "Here is the post: {}\n\n" + \
+             "Reply ONLY with the score (1,2,3,4,5). DO NOT reply with text."
+
+    return llama_metric(texts, prompt_blueprint=prompt)
+
+def llama_quality_five(texts):
+    prompt = "You are a text quality judge.\n" + \
+             "When judging the quality pay attention to:\n" + \
+             "\t- broken/cut-off text\n" + \
+             "\t- very repetitive text\n" + \
+             "\t- grammar\n" + \
+             "\t- semantic plausability\n" + \
+             "\t- lexical complexity\n" + \
+             "\nJudge the quality of a given internet post and reply ONLY with a integer from 1-5.\n" + \
+             "\t1 - very low quality\n\t2 - low quality\n\t3 - intermediate quality\n\t4 - good quality\n\t5 - very good quality\n\n" + \
+             "Here is the post: {}\n\n" + \
+             "Reply ONLY with the score (1,2,3,4,5). DO NOT reply with text."
+
+    return llama_metric(texts, prompt_blueprint=prompt)
+
+def llama_quality_scale(texts):
+    """
+    Inspired from https://arxiv.org/abs/2304.00723 and https://arxiv.org/abs/2303.04048
+    """
+    prompt = (
+        "On a scale of 0 to 100, evaluate the post. "
+        "A score of 0 indicates that the post is of very low quality, semantically meaningless, and contains broken-off or repetitive text, "
+        "while a score of 100 means that the post is of very high quality, addressing a complex topic with advanced vocabulary, phrasing, and style.\n"
+        "\n"
+        "Post:\n{}\n"
+        "\n"
+        "Reply ONLY with the integer score (0-100). DO NOT reply with text."
+    )
+
+    return llama_metric(texts, prompt_blueprint=prompt)
+
 
 def llama_quality(texts):
-    
     scores = []
-    total_tokens = 0
     global client
     if client is None:
         client = OpenAI(
@@ -250,7 +404,45 @@ def llama_quality(texts):
                  "\nJudge the quality of a given internet post and reply ONLY with a integer from 0-2.\n" + \
                  "\t0 - low quality\n\t1 - intermediate quality\n\t2 - good quality\n\n" + \
                  f"Here is the post: {text}\n\n" + \
-                 "Reply ONLY with the score (0,1,2). DO NO reply with text."
+                 "Reply ONLY with the score (0,1,2). DO NOT reply with text."
+
+        # completion = client.beta.chat.completions.parse(
+        completion = client.chat.completions.create(
+            model="llama",
+            temperature=0.01,
+            messages=[
+                {"role": "system", "content": prompt},
+            ],
+            max_tokens=1,
+            logprobs=True,
+            top_logprobs=20,
+        )
+
+        score = None
+        for tlp in completion.choices[0].logprobs.content[0].top_logprobs:
+            token = tlp.token
+            if token.isdigit():
+                score = int(token)
+                break
+
+        scores.append(score)
+
+    return scores
+
+def llama_metric(texts, prompt_blueprint):
+    scores = []
+    global client
+    if client is None:
+        client = OpenAI(
+            api_key="EMPTY",
+            base_url="http://localhost:8000/v1",
+        )
+
+    for t_i, text in enumerate(texts):
+        if t_i % 50 == 0 and t_i > 0:
+            print(f"llama quality: [{t_i}/{len(texts)}]")
+
+        prompt = prompt_blueprint.format(text)
 
         # completion = client.beta.chat.completions.parse(
         completion = client.chat.completions.create(
@@ -332,20 +524,22 @@ def get_positivity(text):
     sid = SentimentIntensityAnalyzer()    
     return sid.polarity_scores(text)['compound']
 
-def get_positivites(texts):
+def get_positivity_batch(texts):
     return [get_positivity(tx) for tx in texts]
 
 # Predict toxicity using library from https://pypi.org/project/detoxify/
 toxicity_nlp = None
 
-def get_toxicity_batch(texts, batch_size=256):
+def get_toxicity_batch(texts, batch_size=256, verbose=False):
     global toxicity_nlp
     if toxicity_nlp is None:
-        toxicity_nlp = Detoxify('original', device="cuda")
+        device = "cuda" if torch.cuda.is_available() else "cpu"
+        toxicity_nlp = Detoxify('original', device=device)
 
     out = []
     for i in range(0, len(texts), batch_size):
-        print(f"{i}/{len(texts)}")
+        if verbose:
+            print(f"{i}/{len(texts)}")
         out += toxicity_nlp.predict(texts[i:i+batch_size])['toxicity']
     return out
 
@@ -380,6 +574,34 @@ def get_gibberish_scores(texts, batch_size=1024):
 
     return texts_scores
 
+
+def get_gibberish_scores_v2(texts, batch_size=1024):
+    global gibberish_detector
+    if gibberish_detector is None:
+        gibberish_detector = pipeline("text-classification", model="madhurjindal/autonlp-Gibberish-Detector-492513457")
+
+    # get sentences
+    all_sentences = []
+    sentence_mapping = {}
+    for text_i, text in enumerate(texts):
+        sentences = sent_tokenize(text)
+        sentence_mapping[text_i] = list(range(len(all_sentences), len(all_sentences) + len(sentences)))
+        all_sentences.extend(sentences)
+
+    # Get gibberish detection scores for all sentences in a single batch
+    results = gibberish_detector(all_sentences, batch_size=batch_size, truncation=True)
+    sentence_scores = [gibberish_detector.model.config.label2id[r['label']] for r in results]
+
+    # Group scores back into their original texts
+    texts_scores = []
+    for text_i in range(len(texts)):
+        text_scores = [sentence_scores[j] for j in sentence_mapping[text_i]]
+        # averaged_score = sum(text_scores) / len(text_scores)
+        texts_scores.append(max(text_scores))
+
+    assert len(texts_scores) == len(texts)
+
+    return texts_scores
 
 
 
@@ -485,13 +707,50 @@ def evaluate_generations(generated_texts, verbose=False):
 
     return logs
 
-def compute_var_diveristy(embs):
+def compute_var_diversity(embs):
     return np.array(embs).var(axis=0).mean()
 
-def compute_cos_diveristy(embs):
-    dist_matrix = pairwise_distances(embs, metric="cosine")
-    print("distances")
-    return dist_matrix[np.triu_indices(len(dist_matrix), k=1)].mean()
+def compute_cos_diversity(embs, return_dist_matrix=False, dist_matrix=None):
+    if dist_matrix is None:
+        dist_matrix = pairwise_distances(embs, metric="cosine")
+
+    cos_diversity = dist_matrix[np.triu_indices(len(dist_matrix), k=1)].mean()
+    if return_dist_matrix:
+        return cos_diversity, dist_matrix
+    else:
+        return cos_diversity
+
+
+def compute_knn_cos_diversity(embs, k=5, return_dist_matrix=False, dist_matrix=None):
+
+    if dist_matrix is None:
+        dist_matrix = pairwise_distances(embs, metric="cosine")
+
+    knn_cos_diversity = []
+    for i in range(len(dist_matrix)):
+        knn_cos_diversity.append(np.sort(dist_matrix[i])[1:k+1].mean())
+    knn_cos_diversity = np.mean(knn_cos_diversity)
+
+    if return_dist_matrix:
+        return knn_cos_diversity, dist_matrix
+    else:
+        return knn_cos_diversity
+
+
+def compute_gaussianes(projs):
+    # for one GMM on the data
+    from sklearn.mixture import GaussianMixture
+    gmm = GaussianMixture(n_components=1).fit(projs)
+    loss = -gmm.score(projs)
+    bic = gmm.bic(projs)
+    aic = gmm.aic(projs)
+    return loss, bic, aic
+
+
+def compute_kl_entropy(embs, k=5, norm='euclidean'):
+    from entropy_estimators import continuous
+    # Kozachenko Leonenko entropy estimator
+    return continuous.get_h(embs, k=k, norm=norm)
 
 def fit_logreg(embs_1, embs_2, max_iter=1):
     X = np.vstack((embs_1, embs_2))
@@ -507,132 +766,6 @@ def fit_logreg(embs_1, embs_2, max_iter=1):
     return loss, acc
 
 
-from torch.nn import CrossEntropyLoss
-from evaluate import logging
-
-
-class Perplexity:
-    def __init__(self, model_id="mistralai/Mistral-7B-v0.1", model_args=None):
-
-        if model_args is None:
-            model_args = {}
-
-        self.model_id = model_id
-        self.model = AutoModelForCausalLM.from_pretrained(model_id, **model_args).eval()
-
-        self.tokenizer = AutoTokenizer.from_pretrained(model_id)
-        self.device = self.model.device
-
-    def evaluate(
-        self, predictions, batch_size: int = 16, add_start_token: bool = True, add_end_token: bool = False, max_length=None,
-        response_template=None
-    ):
-
-        # if batch_size > 1 (which generally leads to padding being required), and
-        # if there is not an already assigned pad_token, assign an existing
-        # special token to also be the padding token
-        if self.tokenizer.pad_token is None and batch_size > 1:
-            existing_special_tokens = list(self.tokenizer.special_tokens_map_extended.values())
-            # check that the model already has at least one special token defined
-            assert (
-                len(existing_special_tokens) > 0
-            ), "If batch_size > 1, model must have at least one special token to use for padding. Please use a different model or set batch_size=1."
-            # assign one of the special tokens to also be the pad token
-            self.tokenizer.add_special_tokens({"pad_token": existing_special_tokens[0]})
-
-        max_tokenized_len = max_length
-        if add_start_token and max_length:
-            # leave room for <BOS> token to be added:
-            assert (
-                self.tokenizer.bos_token is not None
-            ), "Input model must already have a BOS token if using add_start_token=True. Please use a different model, or set add_start_token=False"
-            max_tokenized_len = max_tokenized_len - 1
-
-        if add_end_token and max_length:
-            # leave room for <EOS> token to be added:
-            assert (
-                    self.tokenizer.eos_token is not None
-            ), "Input model must already have a BOS token if using add_start_token=True. Please use a different model, or set add_start_token=False"
-            max_tokenized_len = max_tokenized_len - 1
-
-        if add_end_token:
-            predictions = [p+self.tokenizer.eos_token for p in predictions]
-
-        ppls = []
-        ces = []
-        loss_fct = CrossEntropyLoss(reduction="none")
-
-        for start_index in logging.tqdm(range(0, len(predictions), batch_size), desc=f"Perplexity ({self.model_id})"):
-            end_index = min(start_index + batch_size, len(predictions))
-
-            predictions_batch = predictions[start_index:end_index]
-
-            encodings_batch = self.tokenizer(
-                predictions_batch,
-                add_special_tokens=False,
-                padding=True,
-                truncation=True if max_tokenized_len else False,
-                max_length=max_tokenized_len,
-                return_tensors="pt",
-                return_attention_mask=True,
-            ).to(self.device)
-
-            encoded_texts_batch = encodings_batch["input_ids"]
-            attn_masks_batch = encodings_batch["attention_mask"]
-
-            # check that each input is long enough:
-            if add_start_token:
-                assert torch.all(torch.ge(attn_masks_batch.sum(1), 1)), "Each input text must be at least one token long."
-            else:
-                assert torch.all(
-                    torch.ge(attn_masks_batch.sum(1), 2)
-                ), "When add_start_token=False, each input text must be at least two tokens long. Run with add_start_token=True if inputting strings of only one token, and remove all empty input strings."
-
-            # encoded_batch = encoded_texts[start_index:end_index]
-            # attn_mask = attn_masks[start_index:end_index]
-
-            if add_start_token:
-                bos_tokens_tensor = torch.tensor([[self.tokenizer.bos_token_id]] * encoded_texts_batch.size(dim=0)).to(self.device)
-                encoded_texts_batch = torch.cat([bos_tokens_tensor, encoded_texts_batch], dim=1)
-                attn_masks_batch = torch.cat(
-                    [torch.ones(bos_tokens_tensor.size(), dtype=torch.int64).to(self.device), attn_masks_batch], dim=1
-                )
-
-            labels = encoded_texts_batch
-
-            with torch.no_grad():
-                out_logits = self.model(encoded_texts_batch, attention_mask=attn_masks_batch).logits
-
-            shift_logits = out_logits[..., :-1, :].contiguous()
-            shift_labels = labels[..., 1:].contiguous()
-            shift_attention_mask_batch = attn_masks_batch[..., 1:].contiguous()
-
-            if response_template is not None:
-                response_mask = []
-                for i in range(len(shift_labels)):
-                    prefix_tokens = self.tokenizer(
-                        predictions_batch[i].split(response_template)[0] + response_template,
-                        add_special_tokens=False,
-                        return_attention_mask=False
-                    )['input_ids']
-                    shift_prefix_tokens = prefix_tokens[1:]
-
-                    mask_len = len(shift_prefix_tokens)
-                    response_mask.append(np.array([0]*mask_len + [1]*(len(shift_labels[i])-mask_len)))
-
-                response_mask = torch.tensor(np.array(response_mask)).to(self.device)
-                shift_attention_mask_batch *= response_mask.to(self.device)
-
-            ce_batch = (
-                    loss_fct(shift_logits.transpose(1, 2), shift_labels) * shift_attention_mask_batch
-            ).sum(1) / shift_attention_mask_batch.sum(1)
-
-            perplexity_batch = torch.exp(ce_batch)
-
-            ces += ce_batch.tolist()
-            ppls += perplexity_batch.tolist()
-
-        return {"perplexities": ppls, "mean_perplexity": np.mean(ppls), "cross_entropies": ces, "mean_cross_entropy": np.mean(ces)}
 
 
 from transformers import AutoTokenizer, AutoModelForMaskedLM
@@ -731,12 +864,14 @@ class MiniLMEmbedder:
     def add_embeddings(self, dataset, batch_size=32):
         all_embeddings = []
 
-        for i in logging.tqdm(range(0, len(dataset), batch_size), desc="Embedding with minilm"):
+        for i in tqdm(range(0, len(dataset), batch_size), desc="Embedding with minilm"):
             batch = dataset[i:i + batch_size]
             embeddings = self.model.encode(batch["text"])
             all_embeddings.extend(embeddings)
 
         # Add the embeddings as a new column to the dataset
+        if self.embedding_column_name in dataset.column_names:
+            dataset = dataset.remove_columns([self.embedding_column_name])
         dataset = dataset.add_column(self.embedding_column_name, all_embeddings)
 
         return dataset
@@ -764,12 +899,14 @@ class StellaEmbedder:
         # singlegpu
         stella_embeddings = []
 
-        for i in logging.tqdm(range(0, len(dataset), batch_size), desc="Embedding with stella"):
+        for i in tqdm(range(0, len(dataset), batch_size), desc="Embedding with stella"):
             batch = dataset[i:i + batch_size]
             embeddings = self.model.encode(batch["text"])
             stella_embeddings.extend(embeddings)
 
         # Add the embeddings as a new column to the dataset
+        if self.embedding_column_name in dataset.column_names:
+            dataset = dataset.remove_columns([self.embedding_column_name])
         dataset = dataset.add_column(self.embedding_column_name, stella_embeddings)
 
         return dataset
@@ -780,6 +917,8 @@ class StellaEmbedder:
         self.model.stop_multi_process_pool(pool)
 
         # Add the embeddings as a new column to the dataset
+        if self.embedding_column_name in dataset.column_names:
+            dataset = dataset.remove_columns([self.embedding_column_name])
         dataset = dataset.add_column(self.embedding_column_name, list(stella_embeddings))
 
         return dataset
@@ -812,11 +951,14 @@ def get_or_compute_cache(cache_path, compute_fn, *args, force_recompute=False, *
         cached_value = load_if_exists(cache_path)
 
     if cached_value is None:
-        print(f"Cache not found. Computing {compute_fn.__name__}.")
+        print(f"Computing {compute_fn.__name__}. {'(forced recompute)' if force_recompute else f''}")
         cached_value = compute_fn(*args, **kwargs)
         with open(cache_path, 'wb') as f:
             pickle.dump(cached_value, f)
         print(f"Saved cache to: {cache_path}")
+    else:
+        print(f"Loaded {compute_fn.__name__} from cache {cache_path}.")
+
     return cached_value
 
 
@@ -835,3 +977,5 @@ def get_ai_human_n_posts(experiment_dir, gen_i):
         )['args']['per_participant_ai_dataset_size']
 
     return gen_n, human_n
+
+

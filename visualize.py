@@ -11,13 +11,17 @@ import matplotlib.colors as mcolors
 from visualization_utils import *
 
 # different label -> different curves
-def create_label(dir, part_dir, interaction_metric=None, metric=None):  # different labels -> different curves
-    if "senator" in str(dir):
+def create_label(dir, part_dir, interaction_metric=None, metric=None, legend_conf=None):  # different labels -> different curves
+    if "merged" in str(dir):
+        dataset = "merged"
+    elif "senator" in str(dir):
         dataset = "senators_tweets"
     elif "100m" in str(dir):
         dataset = "100M_twitter"
+    elif "webis" in str(dir) and "rstrip" in str(dir):
+        dataset = "webis_reddit(rstrip)"
     elif "webis" in str(dir):
-        dataset = "reddit"
+        dataset = "webis_reddit"
     elif "reddit_submissions" in str(dir):
         dataset = "reddit_submissions"
     else:
@@ -31,34 +35,40 @@ def create_label(dir, part_dir, interaction_metric=None, metric=None):  # differ
         seed_str = ""
 
     n_part = str(dir).split("_participants_")[1].replace("/", "_").split("_")[0]
-    part_str = f"(pop size: {n_part})"
+    # pop_str = f" (pop size: {n_part})"
+    pop_str = ""
 
     if interaction_metric is not None:
         # interaction plot
-        interaction_metric_str = f"ratio : {interaction_metric}"
+        interaction_metric_str = f" ratio : {interaction_metric}"
     else:
         interaction_metric_str = ""
 
     if "_type_" in str(dir):
-        type = str(dir).split("_type_")[1].split("_")[0]
+        type = str(dir).split("_type_")[1].split("_part")[0]
+        # type = str(dir).split("_type_")[1].split("_")[0]
     else:
         type = "standard"
 
     if "hq_1" in str(dir):
         type = "hq"
 
-    dataset_type_str = f"type: "+{"hq": "high quality", "mq": "mid quality", "ld": "low diversity"}[type] if type != "standard" else ""
+    if "scale_v3" in str(dir):
+        model_str = " bigger models"
+    else:
+        model_str = ""
 
-    return f"{dataset} {part_str} {dataset_type_str} {interaction_metric_str} {seed_str}"
+    dataset_type_str = f" type: "+{"hq": "high quality", "mq": "mid quality", "lq": "low quality"}.get(type, type) if type != "standard" else ""
+
+    return f"{dataset}{model_str}{pop_str}{dataset_type_str}{interaction_metric_str}{seed_str}"
 
 def label_to_color_id(label):  # label with different color_id -> different colors
     # we remove all after generated_ -> different ratios and seed have same color
     # return label.split("pop size: ")[1].split(")")[0]
-
-    return label
+    # return label
     try:
-        # return label.split("(seed=")[1] # different colors
-        return label.split("seed")[0]  # per seed colors
+        return label.split("seed")[-1] # different colors
+        # return label.split("seed")[0]  # per seed colors
     except:
         return label.split("ratio")[0]
 
@@ -66,17 +76,30 @@ def label_to_color_id(label):  # label with different color_id -> different colo
 
 
 # this can be used to fix some experiment_ids to colors
-def parse_colors_dict(colors_dict):
-    return colors_dict
+def parse_colors_dict(colors_dict, legend_conf):
+    if legend_conf == "qd":
+        for d, c in colors_dict.items():
+            if "Q20" in d:
+                colors_dict[d] = "tab:red"
+            elif "Q40" in d:
+                colors_dict[d] = "tab:orange"
+            elif "Q51" in d:
+                colors_dict[d] = "tab:purple"
+            elif "Q60" in d:
+                colors_dict[d] = "tab:blue"
+            elif "Q80" in d:
+                colors_dict[d] = "tab:green"
+            elif "high quality" in d:
+                colors_dict[d] = "tab:green"
+            elif "mid quality" in d:
+                colors_dict[d] = "tab:blue"
+            elif "low quality" in d:
+                colors_dict[d] = "tab:red"
+            else:
+                colors_dict[d] = "black"
+    else:
+        return colors_dict
 
-    for d, c in colors_dict.items():
-        # colors_dict[d] = plt.cm.gray(0.3)
-        if "high quality" in d:
-            colors_dict[d] = "tab:green"
-        elif "mid quality" in d:
-            colors_dict[d] = "tab:red"
-        else:
-            colors_dict[d] = "tab:blue"
 
     return colors_dict
 
@@ -133,6 +156,7 @@ if __name__ == "__main__":
     parser.add_argument("--visualize-datasets", action="store_true")
     parser.add_argument("--assert-n-datapoints", type=int, default=None, help="Assert number of datapoints to shade by (e.g. seeds).")
     parser.add_argument("--plot-2D", nargs="+", help="Plot 2D graph of the metrics", default=None)
+    parser.add_argument("--legend-conf", type=str, help="Plot 2D graph of the metrics", default=None)
 
     parser.add_argument("--violin", action="store_true")
     parser.add_argument("--per-seed", action="store_true")
@@ -141,9 +165,14 @@ if __name__ == "__main__":
     parser.add_argument("--no-show", action="store_true")
     parser.add_argument("--scatter", action="store_true")
     parser.add_argument("--normalize", "-n", action="store_true", help="Normalize with respect to the human input dataset from generation 0")
+    parser.add_argument("--shift", "-s", action="store_true", help="Shift with respect to the human input dataset from generation 0")
     parser.add_argument("--log", action="store_true", help="Log scale y axis")
 
     args = parser.parse_args()
+    # args.assert_n_datapoints = False
+    # print("NOOO ASSERTING datapoints")
+    # time.sleep(1)
+
 
     print("N_dirs:", len(args.directories))
     args.directories = sorted(args.directories, key=lambda d: (d.split("/")[0], int(d.split("generated_")[1].split("_human")[0])))
@@ -155,7 +184,7 @@ if __name__ == "__main__":
     print(f"Results found: {len(all_participant_directories)}")
     # load data
     all_results = load_results(all_participant_directories)
-    all_colors = list(mcolors.TABLEAU_COLORS.keys()) + list(mcolors.CSS4_COLORS.keys())
+    all_colors = list(mcolors.TABLEAU_COLORS.keys()) + list(mcolors.CSS4_COLORS.keys()) * 10
 
     # this will be used to merge runs into seeds later
     dir_seed_part_dict = {}
@@ -209,15 +238,19 @@ if __name__ == "__main__":
 
                 if args.normalize:
                     # score of input dataset at generation 0
-                    # human_input_dataset_score = np.mean(data["input_"+args.metric][0]) #input
-                    human_input_dataset_score = np.mean(data[args.metric][0])
-                    scores = {g: np.array(s)/human_input_dataset_score for g, s in scores.items()}
+                    normalizing_score = np.mean(data[args.metric][0])
+                    scores = {g: np.array(s) / normalizing_score for g, s in scores.items()}
+
+                elif args.shift:
+                    # score of input dataset at generation 0
+                    normalizing_score = np.mean(data[args.metric][0])
+                    scores = {g: np.array(s) - normalizing_score for g, s in scores.items()}
 
                 interaction_metric_value = data[args.interaction_metric]  # e.g. AI ratio or ratio L-R ratio
 
                 if args.interaction_plots:
                     # dir-wo_ratio -> (ratio, n_seeds)  -> different ratios in the same plot
-                    label = create_label(dir, part, metric=args.metric)
+                    label = create_label(dir, part, metric=args.metric, legend_conf=args.legend_conf)
                     if args.interaction_generation in scores:
 
                         if args.interaction_generation_smooth > 1:
@@ -245,7 +278,7 @@ if __name__ == "__main__":
 
                 elif args.per_seed:
                     # dir+seed -> (n_generations, n_posts)
-                    label = create_label(seed, part, interaction_metric=interaction_metric_value, metric=args.metric)
+                    label = create_label(seed, part, interaction_metric=interaction_metric_value, metric=args.metric, legend_conf=args.legend_conf)
 
                     for gen_i, s in scores.items():
                         assert len(label_metric_dict[label][gen_i]) == 0, "each seed should be processed only once"
@@ -253,7 +286,7 @@ if __name__ == "__main__":
 
                 else:
                     # dir -> (n_generations, n_seeds)
-                    label = create_label(dir, part, interaction_metric=interaction_metric_value, metric=args.metric)
+                    label = create_label(dir, part, interaction_metric=interaction_metric_value, metric=args.metric, legend_conf=args.legend_conf)
 
                     # some metrics are computer on a per-post basis (e.g. ce) so we average over posts
                     # for other metrics (e.g. diversity) this has no effect
@@ -280,7 +313,7 @@ if __name__ == "__main__":
     # label with the same color_id will have the same colors
     color_ids = [label_to_color_id(l) for l in labels]
     color_id_to_color_dict = dict(zip(set(color_ids), all_colors))
-    color_id_to_color_dict = parse_colors_dict(color_id_to_color_dict)
+    color_id_to_color_dict = parse_colors_dict(color_id_to_color_dict, legend_conf=args.legend_conf)
 
     # load colors from cache (to ensure same colors in same figures)
     if os.path.isfile(".cache/colors.json"):
@@ -309,6 +342,7 @@ if __name__ == "__main__":
         save_path=args.save_path,
         no_show=args.no_show,
         log=args.log,
+        # ylim=(0, 1.2) if args.normalize else None,
         assert_n_datapoints=args.assert_n_datapoints,
         scatter=args.scatter,
         fontsize=30,

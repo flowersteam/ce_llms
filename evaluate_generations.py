@@ -22,6 +22,7 @@ parser.add_argument("--seed-dir", type=str, help="Experiment directory")
 parser.add_argument("--emb", action="store_true", help="Embeddings and embedding based metrics")
 parser.add_argument("--gpt-quality", action="store_true", help="GPT quality")
 parser.add_argument("--llama-quality", action="store_true", help="Judge quality")
+parser.add_argument("--llama-quality-scale", action="store_true", help="Judge quality")
 parser.add_argument("--input", action="store_true", help="Judge quality")
 parser.add_argument("--gib", action="store_true", help="Compute gibberish score")
 parser.add_argument("--pol", action="store_true", help="Compute political lean")
@@ -57,6 +58,7 @@ cache_dir = Path(".cache") / eval_save_dir
 cache_dir.mkdir(parents=True, exist_ok=True)
 
 stella_embedder = None
+minilm_embedder = None
 modernbert_embedder = None
 
 if args.participant == "all_parts":
@@ -97,6 +99,12 @@ if args.input:
                 part_input_d = stella_embedder.add_embeddings(part_input_d, batch_size=256)
                 overwrite_to_disk(part_input_d, part_input_d_path)
 
+            # emb_column_name = f"minilm_embeddings"
+            # if emb_column_name not in part_input_d.features:
+            #     embedder = MiniLMEmbedder() if embedder is None else embedder
+            #     part_input_d = embedder.add_embeddings(part_input_d, batch_size=256)
+            #     overwrite_to_disk(part_input_d, part_input_d_path)
+
         input_ds.append(part_input_d)
 
     input_d = concatenate_datasets(input_ds)
@@ -107,6 +115,7 @@ if args.input:
 
     quick_metrics_results = get_or_compute_cache(
         cache_path=str(cache_dir / f'input_quick_metrics_cap_{n_samples_cap}_gen_0_part_{args.participant}.pickle'),
+        # force_recompute=True,
         compute_fn=compute_quick_metrics, input_d=capped_input_d
     )
 
@@ -114,18 +123,19 @@ if args.input:
         results[f"input_{quick_metric}_cap_{n_samples_cap}"][0] = quick_metric_scores
 
     if args.emb:
-        emb_name="stella"
-        embs = np.array(capped_input_d[f"{emb_name}_embeddings"])
+        # for emb_name in ["stella", "minilm"]:
+        for emb_name in ["stella"]:
+            embs = np.array(capped_input_d[f"{emb_name}_embeddings"])
+            results[f'input_cos_diversity_{emb_name}_cap_{n_samples_cap}'][0] = get_or_compute_cache(
+                cache_path=str(cache_dir / f'{emb_name}_cos_diversities_cap_{n_samples_cap}_input_gen_0_part_{args.participant}.pickle'),
+                compute_fn=compute_cos_diversity, embs=embs
+            )
 
-        results[f'input_cos_diversity_{emb_name}_cap_{n_samples_cap}'][0] = get_or_compute_cache(
-            cache_path=str(cache_dir / f'{emb_name}_cos_diversities_cap_{n_samples_cap}_input_gen_0_part_{args.participant}.pickle'),
-            compute_fn=compute_cos_diveristy, embs=embs
-        )
-
-    if args.llama_quality:
-        results[f'input_llama_quality_cap_{n_samples_cap}'][0] = get_or_compute_cache(
-            cache_path=str(cache_dir / f'llama_quality_cap_{n_samples_cap}_input_gen_0_part_{args.participant}.pickle'),
-            compute_fn=llama_quality, texts=capped_input_d['text']
+    if args.llama_quality_scale:
+        results[f'input_llama_quality_scale_cap_{n_samples_cap}'][0] = get_or_compute_cache(
+            cache_path=str(cache_dir / f'llama_quality_scale_cap_{n_samples_cap}_input_gen_0_part_{args.participant}.pickle'),
+            # force_recompute=True,
+            compute_fn=llama_quality_scale, texts=capped_input_d['text']
         )
 
     if args.gib:
@@ -133,7 +143,7 @@ if args.input:
             cache_path=str(cache_dir / f'gibberish_score_cap_{n_samples_cap}_input_gen_0_part_{args.participant}.pickle'),
             compute_fn=get_gibberish_scores, texts=capped_input_d['text']
         )
-    
+
     if args.llama_pol_lean:
         results[f'input_llama_pol_cap_{n_samples_cap}'][0] = get_or_compute_cache(
             cache_path=str(cache_dir / f'llama_pol_cap_{n_samples_cap}_input_gen_0_part_{args.participant}.pickle'),
@@ -149,8 +159,6 @@ if args.input:
             cache_path=str(cache_dir / f'llama_is_pol_cap_{n_samples_cap}_input_gen_0_part_{args.participant}.pickle'),
             compute_fn=llama_is_political, texts=capped_input_d['text']
         )
-
-    
 
 
 # output datasets
@@ -177,6 +185,10 @@ for d_gen_i, output_dataset_capped in all_datasets_capped.items():
         if "stella_embeddings" not in output_dataset_capped.features:
             stella_embedder = StellaEmbedder() if stella_embedder is None else stella_embedder
             output_dataset_capped = stella_embedder.add_embeddings(output_dataset_capped, batch_size=256)
+
+        # if "minilm_embeddings" not in output_dataset_capped.features:
+        #     minilm_embedder = MiniLMEmbedder() if minilm_embedder is None else minilm_embedder
+        #     output_dataset_capped = minilm_embedder.add_embeddings(output_dataset_capped, batch_size=256)
 
     all_datasets_capped_[d_gen_i] = output_dataset_capped
 
@@ -232,34 +244,80 @@ for d_gen_i, d in all_datasets_capped.items():
     # quick metrics
     print("Computing quick metrics")
     quick_metrics_results = get_or_compute_cache(
-        cache_path=str(cache_dir / f'quick_metrics_with_text_cap_{n_samples_cap}_gen_{d_gen_i}_part_{args.participant}.pickle'),
+        cache_path=str(cache_dir / f'quick_metrics_cap_{n_samples_cap}_gen_{d_gen_i}_part_{args.participant}.pickle'),
+        # force_recompute=True,
         compute_fn=compute_quick_metrics, input_d=d
     )
 
     for quick_metric, quick_metric_scores in quick_metrics_results.items():
         results[f"{quick_metric}_cap_{n_samples_cap}"][d_gen_i] = quick_metric_scores
 
+    results['selfbleu'], results['diversity_selfbleu'] = get_or_compute_cache(
+        cache_path=str(cache_dir / f'selfbleu_cap_{n_samples_cap}_gen_{d_gen_i}_part_{args.participant}.pickle'),
+        # force_recompute=True,
+        compute_fn=compute_selfbleu, texts=d['text']
+    )
+
+    results['word_entropy'] = get_or_compute_cache(
+        cache_path=str(cache_dir / f'word_entropy_cap_{n_samples_cap}_gen_{d_gen_i}_part_{args.participant}.pickle'),
+        # force_recompute=True,
+        compute_fn=compute_word_entropy, d=d
+    )
+
+    results['aggregate_reading_level'] = get_or_compute_cache(
+        cache_path=str(cache_dir / f'reading_lvl_cap_{n_samples_cap}_gen_{d_gen_i}_part_{args.participant}.pickle'),
+        compute_fn=aggregate_reading_level, texts=d['text']
+    )
+
     if args.emb:
         print("Computing diversity")
-        emb_name="stella"
-        emb_column_name = f"{emb_name}_embeddings"
-        embs = np.array(d[emb_column_name])
+        # emb_name="stella"
+        # for emb_name in ["stella", "minilm"]:
+        for emb_name in ["stella"]:
+            emb_column_name = f"{emb_name}_embeddings"
+            embs = np.array(d[emb_column_name])
 
-        results[f'var_diversity_{emb_name}_cap_{n_samples_cap}'][d_gen_i] = get_or_compute_cache(
-            cache_path=str(cache_dir / f"{emb_name}_var_diversities_cap_{n_samples_cap}_gen_{d_gen_i}_part_{args.participant}.pickle"),
-            compute_fn=compute_var_diveristy, embs=embs
-        )
+            # var
+            results[f'var_diversity_{emb_name}_cap_{n_samples_cap}'][d_gen_i] = get_or_compute_cache(
+                cache_path=str(cache_dir / f"{emb_name}_var_diversities_cap_{n_samples_cap}_gen_{d_gen_i}_part_{args.participant}.pickle"),
+                compute_fn=compute_var_diversity, embs=embs
+            )
 
-        results[f'cos_diversity_{emb_name}_cap_{n_samples_cap}'][d_gen_i] = get_or_compute_cache(
-            cache_path=str(cache_dir / f"{emb_name}_cos_diversities_cap_{n_samples_cap}_gen_{d_gen_i}_part_{args.participant}.pickle"),
-            compute_fn=compute_cos_diveristy, embs=embs
-        )
+            # cos
+            cos_div, d_matrix = get_or_compute_cache(
+                cache_path=str(cache_dir / f"{emb_name}_cos_diversities_cap_{n_samples_cap}_gen_{d_gen_i}_part_{args.participant}.pickle"),
+                compute_fn=compute_cos_diversity, embs=embs, return_dist_matrix=True
+            )
+            results[f'cos_diversity_{emb_name}_cap_{n_samples_cap}'][d_gen_i] = cos_div
 
+            # cos knn
+            k = 5
+            knn_cos_div = get_or_compute_cache(
+                cache_path=str(cache_dir / f"{emb_name}_cos_nn_{k}_diversities_cap_{n_samples_cap}_gen_{d_gen_i}_part_{args.participant}.pickle"),
+                compute_fn=compute_knn_cos_diversity, embs=embs, k=k, dist_matrix=d_matrix
+            )
+            results[f'cos_{k}_nn_diversity_{emb_name}_cap_{n_samples_cap}'][d_gen_i] = knn_cos_div
+            results[f'cos_{k}_nn_spread_{emb_name}_cap_{n_samples_cap}'][d_gen_i] = cos_div / knn_cos_div
+
+            k = 15
+            knn_cos_div = get_or_compute_cache(
+                cache_path=str(cache_dir / f"{emb_name}_cos_nn_{k}_diversities_cap_{n_samples_cap}_gen_{d_gen_i}_part_{args.participant}.pickle"),
+                compute_fn=compute_knn_cos_diversity, embs=embs, k=k, dist_matrix=d_matrix
+            )
+            results[f'cos_{k}_nn_diversity_{emb_name}_cap_{n_samples_cap}'][d_gen_i] = knn_cos_div
+            results[f'cos_{k}_nn_spread_{emb_name}_cap_{n_samples_cap}'][d_gen_i] = cos_div / knn_cos_div
 
     if args.llama_quality:
         results[f'llama_quality_cap_{n_samples_cap}'][d_gen_i] = get_or_compute_cache(
             cache_path=str(cache_dir / f'llama_quality_cap_{n_samples_cap}_gen_{d_gen_i}_part_{args.participant}.pickle'),
             compute_fn=llama_quality, texts=d['text']
+        )
+
+    if args.llama_quality_scale:
+        results[f'llama_quality_scale_cap_{n_samples_cap}'][d_gen_i] = get_or_compute_cache(
+            cache_path=str(cache_dir / f'llama_quality_scale_cap_{n_samples_cap}_gen_{d_gen_i}_part_{args.participant}.pickle'),
+            # force_recompute=True,
+            compute_fn=llama_quality_scale, texts=d['text']
         )
 
     if args.gpt_quality:
@@ -288,7 +346,7 @@ for d_gen_i, d in all_datasets_capped.items():
     if args.pos:
         results[f'positivity_cap_{n_samples_cap}'][d_gen_i] = get_or_compute_cache(
             cache_path=str(cache_dir / f'positivity_cap_{n_samples_cap}_gen_{d_gen_i}_part_{args.participant}.pickle'),
-            compute_fn=get_positivites, texts=d['text']
+            compute_fn=get_positivity_batch, texts=d['text']
         )
 
     if args.tox:

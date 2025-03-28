@@ -1,3 +1,16 @@
+#dirs_pattern=""
+#dirs_pattern+=" eval_results/results/human_ai_ratio_dataset_100m_tweets_cl_type_standard*_1/generated_*_*"
+#dirs_pattern+=" eval_results/results/human_ai_ratio_dataset_100m_tweets_cl_type_[hm]q*_1/generated_*_*"
+#python visualize.py --directories $dirs_pattern --metric cos_diversity_stella_cap_250 -ip -ig 19 -igs 5 -fhr 1.0 --scatter --assert-n-datapoints 5
+#python visualize.py --directories $dirs_pattern --metric llama_quality_cap_250 -ip -ig 19 -igs 5 -fhr 1.0 --scatter --assert-n-datapoints 5
+#
+#dirs_pattern=""
+#dirs_pattern+=" eval_results/results/human_ai_ratio_dataset_senator_tweets_type_standard*_1/generated_*_*"
+#dirs_pattern+=" eval_results/results/human_ai_ratio_dataset_senator_tweets_type_[hm]q*_1/generated_*_*"
+#python visualize.py --directories $dirs_pattern --metric cos_diversity_stella_cap_250 -ip -ig 19 -igs 5 -fhr 1.0 --scatter --assert-n-datapoints 5
+#python visualize.py -n --directories $dirs_pattern --metric llama_quality_cap_250 -ip -ig 19 -igs 5 -fhr 1.0 --scatter --assert-n-datapoints 5
+#
+#exit
 # TEMP
 dirs_pattern=""
 #dirs_pattern+=" eval_results/results/scale_small_mixed*_*/generated_*_*"
@@ -9,15 +22,15 @@ dirs_pattern+="eval_results/results/scale_small_4k_train_mixed_dataset_webis_red
 #python visualize.py --directories $dirs_pattern --metric pc_unique_posts_cap_250 --part part_0 -ip -ig 19 -igs 5 -fhr 1.0
 #python visualize.py --directories $dirs_pattern --metric cos_diversity_stella_cap_250 -ip -ig 19 -igs 5 -fhr 1.0
 #python visualize.py --directories $dirs_pattern --metric cos_diversity_stella_cap_250 -ip -ig 19 -igs 5 -fhr 1.0
-python visualize.py --directories $dirs_pattern --metric gibberish_score_cap_250 -ip -ig 19 -igs 5 -fhr 1.0
+#python visualize.py --directories $dirs_pattern --metric gibberish_score_cap_250 -ip -ig 19 -igs 5 -fhr 1.0
 #python plot_scaling_law.py --directories $dirs_pattern --metric gibberish_score_cap_250 --generation 19 --smooth-n 5 --assert-n-datapoints 5
 #python plot_scaling_law.py --directories $dirs_pattern --metric cos_diversity_stella_cap_250 --generation 19 --smooth-n 5 --assert-n-datapoints 5
-#python plot_scaling_law.py --directories $dirs_pattern --metric llama_quality_cap_250 --generation 19 --smooth-n 5 --assert-n-datapoints 5
+#python plot_scaling_law.py --directories $dirs_pattern --metric llama_quality_cap_250 --generation 19 --smooth-n 5 #--assert-n-datapoints 5
 
 #python plot_scaling_law.py --directories $dirs_pattern --metric cos_diversity_stella_cap_250 --generation 19 --smooth-n 5
 #python plot_scaling_law.py --directories $dirs_pattern --metric llama_quality_cap_250 --generation 19 --smooth-n 5
 #python plot_scaling_law.py --directories $dirs_pattern --metric gibberish_score_cap_250 --generation 19 --smooth-n 5
-exit
+#exit
 
 #dirs_pattern=""
 #dirs_pattern+=" eval_results/results/scale_unbalanced_sampling_small_mixed*_1/generated_*_*"
@@ -34,27 +47,25 @@ exit
 # iterative train
 ######################
 
-plots_dir="./viz_results/chain_QD"
+plots_dir="./viz_results/chain_Q"
 mkdir -p $plots_dir
 
 ## quality diversity
-##############
+####################
+
 # webis
 dirs_pattern=""
 dirs_pattern+=" eval_results/results/scale_unbalanced_sampling_small_mixed*_1/generated_*_*"
 dirs_pattern+=" eval_results/results/human_ai_ratio_dataset_webis_reddit_type_[hm]q*_1/generated_*_*"
 python visualize.py --directories $dirs_pattern --metric cos_diversity_stella_cap_250 -ip -ig 19 -igs 5 -fhr 1.0 --scatter --assert-n-datapoints 5 --no-show --save-path ${plots_dir}/webis_reddit_diversity
 python visualize.py --directories $dirs_pattern --metric llama_quality_cap_250 -ip -ig 19 -igs 5 -fhr 1.0 --scatter --assert-n-datapoints 5 --no-show --save-path ${plots_dir}/webis_reddit_quality
-#python visualize.py --directories $dirs_pattern --metric gibberish_quality_cap_250 -ip -ig 19 -igs 5 -fhr 1.0 --scatter --assert-n-datapoints 5 --no-show --save-path ${plots_dir}/webis_reddit_gibberish
-exit
 
-# twitter100m
+# twitter 100m
 dirs_pattern=""
-dirs_pattern+=" eval_results/results/human_ai_ratio_dataset_100m_tweets_type_standard*_1/generated_*_*"
-dirs_pattern+=" eval_results/results/human_ai_ratio_dataset_100m_tweets_type_[hm]q*_1/generated_*_*"
-python visualize.py --directories $dirs_pattern --metric cos_diversity_stella_cap_250 -ip -ig 19 -igs 5 -fhr 1.0 --scatter --assert-n-datapoints 5 --no-show --save-path ${plots_dir}/100m_tweets_diversity
-python visualize.py --directories $dirs_pattern --metric llama_quality_cap_250 -ip -ig 19 -igs 5 -fhr 1.0 --scatter --assert-n-datapoints 5 --no-show --save-path ${plots_dir}/100m_tweets_quality
-#python visualize.py --directories $dirs_pattern --metric gibberish_quality_cap_250 -ip -ig 19 -igs 5 -fhr 1.0 --scatter --assert-n-datapoints 5 --no-show --save-path ${plots_dir}/100m_tweets_gibberish
+dirs_pattern+=" eval_results/results/human_ai_ratio_dataset_100m_tweets_cl_type_standard*_1/generated_*_*"
+dirs_pattern+=" eval_results/results/human_ai_ratio_dataset_100m_tweets_cl_type_[hm]q*_1/generated_*_*"
+python visualize.py --directories $dirs_pattern --metric cos_diversity_stella_cap_250 -ip -ig 19 -igs 5 -fhr 1.0 --scatter --assert-n-datapoints 5 --no-show --save-path ${plots_dir}/100m_tweets_cl_diversity
+python visualize.py --directories $dirs_pattern --metric llama_quality_cap_250 -ip -ig 19 -igs 5 -fhr 1.0 --scatter --assert-n-datapoints 5 --no-show --save-path ${plots_dir}/100m_tweets_cl_quality
 
 # reddit submissions
 dirs_pattern=""
@@ -62,13 +73,16 @@ dirs_pattern+=" eval_results/results/human_ai_ratio_dataset_reddit_submissions_t
 dirs_pattern+=" eval_results/results/human_ai_ratio_dataset_reddit_submissions_type_[hm]q*1/generated_*_*"
 python visualize.py --directories $dirs_pattern --metric cos_diversity_stella_cap_250 -ip -ig 19 -igs 5 -fhr 1.0 --scatter --assert-n-datapoints 5 --no-show --save-path ${plots_dir}/reddit_submissions_diversity
 python visualize.py --directories $dirs_pattern --metric llama_quality_cap_250 -ip -ig 19 -igs 5 -fhr 1.0 --scatter --assert-n-datapoints 5 --no-show --save-path ${plots_dir}/reddit_submissions_quality
-#python visualize.py --directories $dirs_pattern --metric gibberish_quality_cap_250 -ip -ig 19 -igs 5 -fhr 1.0 --scatter --assert-n-datapoints 5 --no-show --save-path ${plots_dir}/reddit_submissions_gibberish
 exit
 
 #python visualize.py  --directories $dirs_pattern --metric cos_diversity_stella_cap_250 --part part_0 -ip -ig 19 -igs 5 -fhr 1.0 --assert-n-datapoints 5 --no-show --save-path ${plots_dir}/QD_diverisity
 #python visualize.py --directories $dirs_pattern --metric llama_quality_cap_250 --part part_0 -ip -ig 19 -igs 5 -fhr 1.0 --assert-n-datapoints 5 --no-show --save-path ${plots_dir}/QD_quality
 
 
+
+
+
+# old
 # POPULATION
 ##############
 dirs_pattern=""
@@ -96,12 +110,6 @@ exit
 #python visualize.py --directories $dirs_pattern --metric cos_diversity_stella_cap_250 --part part_0 -ip -ig 19 -igs 5 -fhr 1.0 --assert-n-datapoints 5 --no-show --save-path ${plots_dir}/baseline_diverisity
 #exit
 
-#python plot_scaling_law.py --directories $dirs_pattern --metric cos_diversity_stella_cap_250 --generation 4 --kl
-#python plot_scaling_law.py --directories $dirs_pattern --metric llama_quality_cap_250 --generation 4 --kl
-#python plot_scaling_law.py --directories $dirs_pattern --metric cos_diversity_stella_cap_250 --generation 4 --kl --no-show --save-path ${plots_dir}/population_scaling_webis_reddit_diverisity_KL
-#python plot_scaling_law.py --directories $dirs_pattern --metric llama_quality_cap_250 --generation 4 --kl --no-show --save-path ${plots_dir}/population_scaling_webis_reddit_quality_KL
-#python plot_scaling_law.py --directories $dirs_pattern --metric cos_diversity_stella_cap_250 --generation 4 --no-show --save-path ${plots_dir}/population_scaling_webis_reddit_diverisity
-#python plot_scaling_law.py --directories $dirs_pattern --metric llama_quality_cap_250 --generation 4 --no-show --save-path ${plots_dir}/population_scaling_webis_reddit_quality
 #exit
 
 # ACCUMULATION

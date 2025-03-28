@@ -13,3 +13,5 @@ einops==0.8.0
 transformers==4.42.4
 Levenshtein==0.26.1
 langkit==0.0.35
+sacrebleu==2.5.1
+openai==1.61.0

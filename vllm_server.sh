@@ -2,44 +2,34 @@
 #SBATCH -A imi@h100
 #SBATCH -C h100
 #SBATCH --gres=gpu:4
-#SBATCH --time=9:59:59
+#SBATCH --time=01:59:59
 #SBATCH --cpus-per-task=24
-#SBATCH -o logs/vllm_client_log_%A.log
-#SBATCH -e logs/vllm_client_log_%A.log
+#SBATCH -o logs/vllm_%A.client.log
+#SBATCH -e logs/vllm_%A.client.log
 #SBATCH -J vllm_server
-##SBATCH --qos=qos_gpu_h100-dev
+#SBATCH --qos=qos_gpu_h100-dev
 
 source /linkhome/rech/genini01/utu57ed/.bashrc
 module purge
 module load arch/h100
 module load python/3.10.4
-conda activate vllm
+#conda activate vllm
+conda activate vllm_311
 
 # for llama first launch vllm server with
 
-export VLLM_CONFIGURE_LOGGING=0 # no logging
+#export VLLM_CONFIGURE_LOGGING=0 # no logging
+export VLLM_USE_V1=1
 export VLLM_WORKER_MULTIPROC_METHOD=spawn
 
-SERVERLOG="logs/vllm_server_log_$SLURM_JOB_ID"
+SERVERLOG="logs/vllm_$SLURM_JOB_ID.server.log"
 echo "Server log : $SERVERLOG"
 
-#CUDA_VISIBLE_DEVICES=0,1 vllm serve /lustre/fsn1/projects/rech/imi/utu57ed/.cache/huggingface/hub/models--meta-llama--Meta-Llama-3-70B-Instruct/snapshots/05917295788658563fd7ef778b6240ad9867d6d1/ \
-#    --max-model-len 2048 \
-#    --gpu-memory-utilization 0.98 \
-#    --served-model-name llama \
-#    --dtype half \
-#    --disable-log-requests \
-#    --disable-log-stats \
-#    --enable-prefix-caching \
-#    --tensor-parallel-size 2 &
-
-vllm serve /lustre/fsn1/projects/rech/imi/utu57ed/.cache/huggingface/hub/models--meta-llama--Meta-Llama-3-70B-Instruct/snapshots/05917295788658563fd7ef778b6240ad9867d6d1/ \
+vllm serve /lustre/fsn1/projects/rech/imi/utu57ed/.cache/huggingface/hub/models--meta-llama--Llama-3.3-70B-Instruct/snapshots/6f6073b423013f6a7d4d9f39144961bfbfbc386b/ \
     --max-model-len 2048 \
     --gpu-memory-utilization 0.98 \
     --served-model-name llama \
-    --dtype half \
-    --disable-log-requests \
-    --disable-log-stats \
+    --dtype bfloat16 \
     --enable-prefix-caching \
     --tensor-parallel-size 4 &> "$SERVERLOG" &
 
@@ -66,8 +56,11 @@ module load python/3.11.5
 conda activate eval_311
 
 
-#CUDA_VISIBLE_DEVICES=2 python play_with_dataset.py
-python prepare_reddit_submissions_dataset.py
+#python prepare_senator_tweets_dataset.py
+#python prepare_reddit_submissions_dataset.py
+#python prepare_100m_tweets_dataset.py
+#python prepare_webis_dataset.py
+python play_with_dataset.py
 
 
 # then wait for the model to load (tail -f logs/vllm_server_logs...)
