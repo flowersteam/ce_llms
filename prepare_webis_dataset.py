@@ -2,6 +2,8 @@ import datasets
 import re
 import numpy as np
 import json
+from sklearn.cluster import KMeans, MiniBatchKMeans
+
 
 # import logging
 # from sentence_transformers import LoggingHandler, SentenceTransformer
@@ -79,8 +81,9 @@ def prepare_dataset(dataset):
     )
     dataset = dataset.map(lambda examples: {"text_len": [len(t) for t in examples["text"]]}, batched=True, desc="Adding text_len")
 
-    # clean dataset from links
-    dataset = dataset.map(lambda examples: {"text": [re.sub(r'http\S+', '', t).rstrip() for t in examples['text']]}, batched=True, desc="Removing links")
+    # # clean dataset from links
+    # dataset = dataset.map(lambda examples: {"text": [re.sub(r'http\S+', '', t).rstrip() for t in examples['text']]}, batched=True, desc="Removing links")
+    assert dataset['text'] == [t.rstrip() for t in dataset['text']]
 
     return dataset
 
@@ -199,18 +202,83 @@ if __name__ == '__main__':
     # split_dataset['test'] = stella_embedder.add_embeddings_multigpu(split_dataset['test'], batch_size=2048)
     # split_dataset['train'] = stella_embedder.add_embeddings_multigpu(split_dataset['train'], batch_size=2048)
     #
-    # file_path = "./data/webis/prepared-quality-diversity-no-tldr-200-minus-20-plus-clear-corpus-webis-tldr-17"
+
+    # file_path = "./data/webis/prepared-cleaned-200-minus-20-plus-corpus-webis-tldr-17"
+    # split_dataset = load_from_disk(file_path)
+    # split_dataset = filter_posts_by_size(split_dataset, n_min=n_min, n_max=n_max)
+    # split_dataset = split_dataset.map(lambda examples: {"text_len": [len(t) for t in examples["text"]]}, batched=True, desc="Adding text_len")
+
+    #
+    # ###################
+    # # add embeddings
+    # ###################
+    # import logging
+    # logging.basicConfig(level=logging.INFO)
+    # from eval_utils import StellaEmbedder
+    # from dataset_utils import overwrite_to_disk
+    # file_path = "./data/webis/prepared-quality-cleaned-200-minus-20-plus-corpus-webis-tldr-17"
+    # split_dataset = load_from_disk(file_path)
+    # print(split_dataset)
+    # stella_embedder = StellaEmbedder(multigpu=True)
+    # split_dataset['test'] = stella_embedder.add_embeddings_multigpu(split_dataset['test'], batch_size=2048)
+    # split_dataset['train'] = stella_embedder.add_embeddings_multigpu(split_dataset['train'], batch_size=2048)
+    # overwrite_to_disk(split_dataset, file_path)
+    # exit()
+
+    ###################
+    # Add qualities
+    ###################
+    # file_path = "./data/webis/prepared-cleaned-200-minus-20-plus-corpus-webis-tldr-17"
+    # split_dataset = load_from_disk(file_path)
+    # print(split_dataset)
+    #
+    # from eval_utils import llama_quality_scale
+    # split_dataset = split_dataset.map(
+    #     lambda examples: {"llama_quality_scale": llama_quality_scale(examples["text"])},
+    #     batched=True, desc="Computing quality scale", batch_size=10, num_proc=60, load_from_cache_file=False
+    # )
+    #
+    # file_path = "./data/webis/prepared-quality-cleaned-200-minus-20-plus-corpus-webis-tldr-17"
     # split_dataset.save_to_disk(file_path)
 
-    file_path = "./data/webis/prepared-quality-diversity-no-tldr-200-minus-20-plus-clear-corpus-webis-tldr-17"
-    split_dataset = load_from_disk(file_path)
-    print('loaded')
-    from eval_utils import compute_cos_diveristy
-    div = compute_cos_diveristy(split_dataset['test']['stella_embeddings'])
-    print(div)
+    ####################
+    # Quality datasets
+    ####################
+    # file_path = "./data/webis/prepared-quality-cleaned-200-minus-20-plus-corpus-webis-tldr-17"
+    # split_dataset = datasets.load_from_disk(file_path)
+    #
+    # dataset = datasets.concatenate_datasets([split_dataset['train'], split_dataset['test']])
+    # dataset = dataset.filter(lambda ex: ex['llama_quality_scale'] is not None, num_proc=64, load_from_cache_file=False)
+    #
+    # qualities = np.array(dataset['llama_quality_scale'])
+    # print("Separating")
+    # for q in [20, 40, 60, 80]:
+    #     d = dataset.select(np.where(qualities == q)[0])
+    #     print("Q:", q)
+    #     print("Size: ", len(d))
+    #     # d.save_to_disk(file_path + f"_llama_scale_{q}")
 
-    # from IPython import embed; embed();
-    # low diversity
-    # split_dataset_ld = split_dataset.filter(lambda ex: ex['subreddit'] == "AskReddit", num_proc=30)
-    # file_path = f"./data/webis/prepared-low-diversity-no-tldr-{n_max}-minus-{n_min}-plus-clear-corpus-webis-tldr-17"
-    # split_dataset_ld.save_to_disk(file_path)
+    ####################
+    # Length datasets
+    ####################
+    file_path = "./data/webis/prepared-quality-cleaned-200-minus-20-plus-corpus-webis-tldr-17"
+    split_dataset = datasets.load_from_disk(file_path)
+    dataset = datasets.concatenate_datasets([split_dataset['train'], split_dataset['test']])
+
+    lengths = np.array(dataset['text_len'])
+
+    sort_indices = np.argsort(lengths)
+    chunk_size = len(sort_indices) // 3
+
+    short_d = dataset.select(sort_indices[:chunk_size])
+    medium_d = dataset.select(sort_indices[chunk_size:2*chunk_size])
+    long_d = dataset.select(sort_indices[2*chunk_size:])
+
+    print("Short: ", np.mean(short_d['text_len']))
+    print("Medium: ", np.mean(medium_d['text_len']))
+    print("Long: ", np.mean(long_d['text_len']))
+
+    short_d.save_to_disk(file_path + "_short")
+    medium_d.save_to_disk(file_path + "_medium")
+    long_d.save_to_disk(file_path + "_long")
+

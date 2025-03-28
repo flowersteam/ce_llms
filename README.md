@@ -74,6 +74,13 @@ cd $HF_HOME
 huggingface-cli download unsloth/llama-3-8b-bnb-4bit --local-dir unsloth/llama-3-8b-bnb-4bit --local-dir-use-symlinks True --cache-dir $HF_HOME
 ```
 
+### Cluster conda env
+
+```
+conda create --name cluster_311 python=3.11
+conda activate cluster_311
+pip install scikit-learn umap-learn sentence_transformers faiss-cpu plotly matplotlib datasets
+```
 
 
 # Experiment

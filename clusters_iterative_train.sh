@@ -4,13 +4,10 @@
 #SBATCH --cpus-per-task=24
 #SBATCH --time=1:55:59
 #SBATCH --gres=gpu:1
-##SBATCH --array=0-119 # 5 (seeds) x 4 (dataset types) x 6 (ratios)
-##SBATCH --array=0-29 # 5 (seeds) x 1 (dataset types) x 6 (ratios)
-##SBATCH --array=0-89 # 5 (seeds) x 3 (dataset types) x 6 (ratios)
-#SBATCH --array=0-59 # 5 (seeds) x 2 (dataset types) x 6 (ratios)
-#SBATCH -o logs/iterative_train_%A_%a.log
-#SBATCH -e logs/iterative_train_%A_%a.log
-#SBATCH -J iterative_train
+#SBATCH --array=0-399 # 1 (seeds) x 100 (dataset types) x 2 (ratios)
+#SBATCH -o logs/clusters_iterative_train_%A_%a.log
+#SBATCH -e logs/clusters_iterative_train_%A_%a.log
+#SBATCH -J clusters_iterative_train
 
 start_time=$(date +%s)
 
@@ -21,22 +18,17 @@ echo ""
 echo "SLURM_JOB_ID: "$SLURM_JOB_ID"_"$SLURM_ARRAY_TASK_ID | tee -a $log_path
 
 # 6 ratios
-ratios=(0.0625 0.125 0.25 0.5 0.75 1)
-#ratios=(0.25 0.5 0.75 1)
-#ratios=(0.75 1)
+#ratios=(0.0625 0.125 0.25 0.5 0.75 1)
+ratios=(0.125 0.25) # 1/8, 1/4
 ratios_len=${#ratios[@]}
 
 # 4 dataset types
-#dattypes=("Q20" "Q40" "Q60" "Q80")
-#dattypes=("Q51" "Q80")
-#dattypes=("standard")
-#dattypes=("short" "medium" "long")
-dattypes=("short" "long")
+dattypes=(cluster_{0..199})
 dattypes_len=${#dattypes[@]}
 
 ratio_id=$((SLURM_ARRAY_TASK_ID % ratios_len))
 dattype_id=$(((SLURM_ARRAY_TASK_ID / ratios_len) % dattypes_len))
-seed_id=$((SLURM_ARRAY_TASK_ID / (ratios_len * dattypes_len)))
+seed_id=0
 
 datetime=`date +"%Y-%m-%d_%H-%M-%S"`
 datetime_nano=`date +"%Y-%m-%d_%H-%M-%S.%N"`
@@ -73,20 +65,8 @@ mixed_models_options=(
 )
 model="mixed"
 
-#dataset_name="webis_reddit"
-#split="all"
-
-#dataset_name="100m_tweets"
-#split="all"
-
-#dataset_name="reddit_submissions"
-#split="all"
-
-dataset_name="senator_tweets"
+dataset_name="webis_reddit"
 split="all"
-
-#dataset_name="senator_submissions_merged"
-#split="all"
 
 source /linkhome/rech/genini01/utu57ed/.bashrc
 
@@ -110,7 +90,8 @@ temp=1.5
 min_p=0.2
 n_generations=20
 
-exp_path=quality_results/human_ai_ratio_dataset_${dataset_name}_type_${dattype}_participants_${n_part}/generated_${per_participant_ai_dataset_size}_human_${per_participant_human_dataset_size}_unsloth/seed_${seed}_${datetime}
+exp_path=webis_clusters_results_v2/human_ai_ratio_dataset_${dataset_name}_type_${dattype}_participants_${n_part}/generated_${per_participant_ai_dataset_size}_human_${per_participant_human_dataset_size}_unsloth/seed_${seed}_${datetime}
+#exp_path=test/human_ai_ratio_dataset_${dataset_name}_type_${dattype}_participants_${n_part}/generated_${per_participant_ai_dataset_size}_human_${per_participant_human_dataset_size}_unsloth/seed_${seed}_${datetime}
 
 mkdir -p $exp_path
 log_path=$exp_path/log.txt

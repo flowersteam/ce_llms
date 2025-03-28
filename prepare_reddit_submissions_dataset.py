@@ -150,16 +150,6 @@ def merge_title_and_text(title, text):
 # print(f"Saved to: {file_path}")
 #
 
-# # step: 3 diversity: take half of subreddits
-# ld_subreddit = "gaming"
-# dataset_ld = datasets.load_dataset("HuggingFaceGECLM/REDDIT_submissions", split=ld_subreddit)
-# dataset_ld = prepare_dataset(dataset_ld, split_name=ld_subreddit)
-# dataset_ld = dataset_ld.shuffle()
-#
-# file_path = f"./data/reddit_submissions/prepared-reddit-submissions-dataset-low-diversity-{n_max}-minus-{n_min}-plus"
-# dataset_ld.save_to_disk(file_path)
-# print(f"Saved to: {file_path}")
-
 
 # clean [deleted][removed] tags
 
@@ -176,6 +166,77 @@ from eval_utils import llama_quality
 #     batched=True, desc="Computing quality", batch_size=10, num_proc=30
 # )
 # overwrite_to_disk(dataset, d_path)
+
+###################
+# add embeddings
+###################
+# if __name__ == "__main__":
+#     import logging
+#     logging.basicConfig(level=logging.INFO)
+#     from eval_utils import StellaEmbedder
+#     file_path = f"./data/reddit_submissions/prepared-reddit-submissions-dataset-with-qualities-200-minus-20-plus"
+#     d = load_from_disk(file_path)
+#     print(d)
+#     stella_embedder = StellaEmbedder(multigpu=True)
+#     d = stella_embedder.add_embeddings_multigpu(d, batch_size=2048)
+#     overwrite_to_disk(d, file_path)
+#
+# exit()
+
+
+###################
+# add qualities
+###################
+# from eval_utils import llama_quality_scale
+# file_path = f"./data/reddit_submissions/prepared-reddit-submissions-dataset-with-qualities-200-minus-20-plus"
+# split_dataset = datasets.load_from_disk(file_path)
+#
+# split_dataset = split_dataset.map(
+#     lambda examples: {"llama_quality_scale": llama_quality_scale(examples["text"])},
+#     batched=True, desc="Computing quality scale", batch_size=10, num_proc=60, load_from_cache_file=False
+# )
+#
+# file_path = f"./data/reddit_submissions/prepared-reddit-submissions-dataset-with-qualities-200-minus-20-plus"
+# overwrite_to_disk(split_dataset, file_path)
+
+
+####################
+# Quality datasets
+####################
+file_path = f"./data/reddit_submissions/prepared-reddit-submissions-dataset-with-qualities-200-minus-20-plus"
+dataset = datasets.load_from_disk(file_path)
+dataset = dataset.filter(lambda ex: ex['llama_quality_scale'] is not None, num_proc=64, load_from_cache_file=False)
+
+qualities = np.array(dataset['llama_quality_scale'])
+print("Separating")
+for q in [20, 40, 60, 80]:
+    d = dataset.select(np.where(qualities == q)[0])
+    print("Q:", q)
+    print("Size: ", len(d))
+    # print("Avg toks", np.mean(d['n_tokens']))
+    # d.save_to_disk(file_path + f"_llama_scale_{q}")
+
+exit()
+
+from IPython import embed; embed();
+
+# sort_indices = np.argsort(dataset['llama_quality_scale'])
+# tercile_size = int(np.floor(len(dataset) // 3))
+#
+# print("Creating datasets")
+# dataset_lq = dataset.select(sort_indices[:tercile_size]).shuffle()
+# print("LQ len: {}, Q: {}".format(len(dataset_lq['llama_quality_scale']), np.mean(dataset_lq['llama_quality_scale'])))
+#
+# dataset_mq = dataset.select(sort_indices[tercile_size: tercile_size * 2]).shuffle()
+# print("MQ len: {}, Q: {}".format(len(dataset_mq['llama_quality_scale']), np.mean(dataset_mq['llama_quality_scale'])))
+#
+# dataset_hq = dataset.select(sort_indices[tercile_size * 2: tercile_size * 3]).shuffle()
+# print("HQ len: {}, Q: {}".format(len(dataset_hq['llama_quality_scale']), np.mean(dataset_hq['llama_quality_scale'])))
+#
+# dataset_lq.save_to_disk(file_path + "_llama_scale_lq")
+# dataset_mq.save_to_disk(file_path + "_llama_scale_mq")
+# dataset_hq.save_to_disk(file_path + "_llama_scale_hq")
+exit()
 
 
 # # Step 4: high q and mid q
@@ -203,8 +264,3 @@ from eval_utils import llama_quality
 #     batched=True, desc="Computing quality", batch_size=10, num_proc=30
 # )
 # overwrite_to_disk(dataset, d_path)
-
-print("prepare reddit test")
-import time
-time.sleep(60)
-print("prepare reddit test done")

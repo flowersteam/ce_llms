@@ -120,7 +120,7 @@ def plot_and_save(
 
         if violin:
             # per text
-            vp = plt.violinplot([y[g] for g in xs], showmeans=True)
+            vp = plt.violinplot([y[g] for g in xs], showmeans=True, bw_method=0.1)
 
             # Manually set the color
             for body in vp['bodies']:
@@ -166,7 +166,6 @@ def plot_and_save(
                 for i, x in enumerate(xs):
                     plt.scatter([x] * len(y[x]), y[x], color=col, alpha=0.6, s=5)  # Adjust `s` for point size
 
-
     if yticks:
         plt.yticks(yticks)
 
@@ -185,10 +184,13 @@ def plot_and_save(
     if xlabel:
         plt.xlabel(xlabel, fontsize=fontsize)
 
-    plt.legend(fontsize=fontsize, loc="upper left")
+    leg=plt.legend(fontsize=fontsize, loc="upper left")
+    # set the linewidth of each legend object
+    for legobj in leg.legendHandles:
+        legobj.set_linewidth(5.0)
 
     if save_path:
-        plt.savefig(save_path+".png", dpi=300)
+        plt.savefig(save_path+".pdf", dpi=300)
         print(f"Saved to: {save_path}")
 
     plt.tight_layout()

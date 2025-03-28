@@ -1,30 +1,37 @@
 #!/bin/bash
+##SBATCH -A vgw@a100
+##SBATCH -C a100
 #SBATCH -A imi@h100
 #SBATCH -C h100
 #SBATCH --gres=gpu:4
-#SBATCH --time=04:59:59
+#SBATCH --time=01:59:59
 #SBATCH --cpus-per-task=24
-#SBATCH -o logs/vllm_eval_log_%A.log
-#SBATCH -e logs/vllm_eval_log_%A.log
+#SBATCH -o logs/vllm_eval_%A.client.log
+#SBATCH -e logs/vllm_eval_%A.client.log
 #SBATCH -J vllm_eval
+##SBATCH --qos=qos_gpu_a100-dev
+#SBATCH --qos=qos_gpu_h100-dev
 
 start_time=$(date +%s)
 
-# find paths
-#seed_paths=(results/human_ai_ratio_dataset_webis_reddit_split_test_acc_1_ft_size_4000_mixed_participants_1/*/* results/human_ai_ratio_dataset_senator_tweets_split_all_acc_1_ft_size_4000_mixed_participants_1/*/*)
-#seed_paths=(
-#)
 seed_paths=(
-#  results/scale_small_mixed*/*/*
-#  results/scale_unbalanced_sampling_small_mixed*/*/*
-#  results/human_ai_ratio_dataset_*/*/*
-#  results/scale_small_mixed*gen_train_ratio_0.1*20/*/*
-  results/scale_unbalanced_sampling_small_mixed*_1/generated_*_*/*
-  results/human_ai_ratio_dataset_webis_reddit_type_*q*_1/generated_*_*/*
-  results/human_ai_ratio_dataset_*_1/*/*
+  webis_clusters_results_v2/*webis*cluster*_1/generated_*_*/*
+#  quality_results/*senator_*short*_1/generated_*_*/*
+#  quality_results/*senator*long*_1/generated_*_*/*
+#  quality_results/*100m*short*_1/generated_*_*/*
+#  quality_results/*100m*medium*_1/generated_*_*/*
+#  quality_results/*100m*long*_1/generated_*_*/*
+#  quality_results/*webis*standard*_1/generated_*_*/*
+#  quality_results/*senator*_1/generated_*_*/*
+#  quality_results/*senator_submissions_merged*_1/generated_*_*/*
+#  quality_results/*webis*cluster_v2*_1/generated_*_*/*
+#  results/human_ai*rstrip*/gen*/*
+#  results/human_ai_ratio_dataset_reddit_submissions_type_standard*1/generated_*_*/*
+#  results/human_ai_ratio_dataset_100m_tweets_cl_type_standard*_1/generated_*_*/*
+#  results/human_ai_ratio_dataset_senator_tweets_type_standard*_1/generated_*_*/*
+#  results/human_ai*_1/gen*/*
+#  results/scale_unbalanced_sampling_small_mixed*_1/gen*/*
 )
-
-#seed_paths=(results/human_ai_ratio_dataset_100m_tweets*/generated_*/*)
 
 # Initialize an empty array to store paths that contain gen_19
 filtered_paths=()
@@ -37,7 +44,6 @@ done
 
 
 echo "Number of paths: ${#filtered_paths[@]}"
-
 # launch server
 source /linkhome/rech/genini01/utu57ed/.bashrc
 module purge
@@ -45,21 +51,22 @@ module load arch/h100
 module load python/3.10.4
 conda activate vllm
 
+#conda activate vllm_311
+
 echo "Launching server"
 
-SERVERLOG="logs/vllm_server_log_$SLURM_JOB_ID"
+SERVERLOG="logs/vllm_eval_$SLURM_JOB_ID.server.log"
 echo "Server log : $SERVERLOG"
 
 # for llama first launch vllm server with
-export VLLM_CONFIGURE_LOGGING=0 # no logging
+#export VLLM_CONFIGURE_LOGGING=0 # no logging
+#export VLLM_USE_V1=1
 export VLLM_WORKER_MULTIPROC_METHOD=spawn
-vllm serve /lustre/fsn1/projects/rech/imi/utu57ed/.cache/huggingface/hub/models--meta-llama--Meta-Llama-3-70B-Instruct/snapshots/05917295788658563fd7ef778b6240ad9867d6d1/ \
+vllm serve /lustre/fsn1/projects/rech/imi/utu57ed/.cache/huggingface/hub/models--meta-llama--Llama-3.3-70B-Instruct/snapshots/6f6073b423013f6a7d4d9f39144961bfbfbc386b/ \
     --max-model-len 2048 \
     --gpu-memory-utilization 0.98 \
     --served-model-name llama \
     --dtype half \
-    --disable-log-requests \
-    --disable-log-stats \
     --enable-prefix-caching \
     --tensor-parallel-size 4 &> "$SERVERLOG" &
 
@@ -92,8 +99,8 @@ current_parallel=0  # Counter for active processes
 (
 
 for i in "${!filtered_paths[@]}"; do
-  python evaluate_generations.py --llama-quality --input --seed-dir ${filtered_paths[$i]}  --generations 0 1 15 16 17 18 19 &
-#  python evaluate_generations.py --llama-quality --input --seed-dir ${filtered_paths[$i]}  &
+  python evaluate_generations.py --llama-quality-scale --seed-dir ${filtered_paths[$i]} --cap 250 --generations 0 15 16 17 18 19 &
+#  python evaluate_generations.py --llama-quality-scale --seed-dir ${filtered_paths[$i]} --cap 250 &
   ((current_parallel++))
   echo "Current parallel" $current_parallel
 

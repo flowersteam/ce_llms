@@ -2,13 +2,13 @@
 #SBATCH -A imi@h100
 #SBATCH -C h100
 #SBATCH --cpus-per-task=24
-#SBATCH --time=09:55:59
+#SBATCH --time=01:55:59
 #SBATCH --gres=gpu:1
-#SBATCH --array=5-5
+#SBATCH --array=2-2
 #SBATCH -o logs/dev_iterative_train_%A_%a.log
 #SBATCH -e logs/dev_iterative_train_%A_%a.log
 #SBATCH -J dev_iterative_train
-##SBATCH --qos=qos_gpu_h100-dev
+#SBATCH --qos=qos_gpu_h100-dev
 
 start_time=$(date +%s)
 
@@ -22,9 +22,9 @@ echo "SLURM_JOB_ID: "$SLURM_JOB_ID"_"$SLURM_ARRAY_TASK_ID | tee -a $log_path
 ratio_id=$((SLURM_ARRAY_TASK_ID % 6))
 seed_id=$((SLURM_ARRAY_TASK_ID / 6))
 
-#gen_train_ratio=1.0
+gen_train_ratio=1.0
 #gen_train_ratio=0.5
-gen_train_ratio=0.1
+#gen_train_ratio=0.1
 
 
 datetime=`date +"%Y-%m-%d_%H-%M-%S"`
@@ -112,6 +112,9 @@ model="mixed"
 dataset_name="webis_reddit"
 split="all"
 
+#dataset_name="senator_submissions_merged"
+#split="all"
+
 model_name=`echo $model | sed 's/.*unsloth--\([^\/]*\)\/snapshots.*/\1/'`
 model_tag=${model_name//\//_}
 
@@ -124,7 +127,8 @@ conda activate unsloth_311
 
 accumulate=1
 
-dattype="standard"
+dattype="cluster_194"
+#dattype="focus"
 #dattype="hq"
 #dattype="ld"
 
