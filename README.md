@@ -10,24 +10,46 @@ We need three environments
 Load the modules
 ```
 module purge
-module load python/3.11.5
+module load python/3.12.7
 ```
 
 Create the conda env 
 ```
-conda create --name unsloth_311 \
-    python=3.11 \
+conda create --name unsloth_312 \
+    python=3.12 \
     pytorch-cuda=12.1 \
     pytorch cudatoolkit xformers -c pytorch -c nvidia -c xformers \
     -y
-conda activate unsloth_311
+conda activate unsloth_312
 ```
 
-Install packages
+Check that torch with gpu support was installed if not run this (and check again):
 ```
-pip install "unsloth[colab-new] @ git+https://github.com/unslothai/unsloth.git"
+pip install  torch --no-cache-dir --force-reinstall
+```
+If this doesn't work install with pip
+
+
+Install packages (with pip)
+```
+conda create --name unsloth_312 python=3.12
+conda activate unsloth_312
+pip install unsloth
 pip install --no-deps trl peft accelerate bitsandbytes
 pip install -r requirements_unsloth.txt
+```
+
+### vllm conda env
+
+```
+module purge
+module load python/3.12.7
+```
+
+```
+conda create --name vllm_312  python=3.12
+conda activate vllm_312
+pip install vllm
 ```
 
 
@@ -35,25 +57,25 @@ pip install -r requirements_unsloth.txt
 
 ```
 module purge
-module load python/3.11.5
+module load python/3.12.7
 ```
 
 ```
-conda create --name eval_311  python=3.11
-conda activate eval_311
+conda create --name eval_312  python=3.12
+conda activate eval_312
 pip install -r requirements_eval.txt
 ```
 
 
 Install vader_lexicon 
-```commandline
+```bash
 python -c "import nltk; nltk.download('vader_lexicon'); nltk.download('punkt_tab')"
 ```
 
 ## Setup your cache dir
 
 Add the following line to `./bashrc`:
-```commandline
+```bash
 export HF_HOME="<path_to_cache_dir>"
 ```
 
@@ -62,7 +84,7 @@ Reload `./bashrc` with `source ~/.bashrc`
 ## Download unsloth models
 
 Install huggingface-cli
-```commandline
+```bash
 conda install -c conda-forge huggingface_hub
 ```
 
@@ -77,9 +99,9 @@ huggingface-cli download unsloth/llama-3-8b-bnb-4bit --local-dir unsloth/llama-3
 ### Cluster conda env
 
 ```
-conda create --name cluster_311 python=3.11
-conda activate cluster_311
-pip install scikit-learn umap-learn sentence_transformers faiss-cpu plotly matplotlib datasets
+conda create --name cluster_312 python=3.12
+conda activate cluster_312
+pip install -r requirements_cluster
 ```
 
 

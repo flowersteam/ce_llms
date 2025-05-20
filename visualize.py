@@ -7,6 +7,7 @@ import itertools
 from pathlib import Path
 import re
 import matplotlib.colors as mcolors
+from termcolor import cprint
 
 from visualization_utils import *
 
@@ -14,6 +15,9 @@ from visualization_utils import *
 def create_label(dir, part_dir, interaction_metric=None, metric=None, legend_conf=None):  # different labels -> different curves
     if "merged" in str(dir):
         dataset = "merged"
+        if "_partition_" in str(dir):
+            dataset += f" ({str(dir).split('_partition_')[1].split('/')[0]})"
+
     elif "senator" in str(dir):
         dataset = "senators_tweets"
     elif "100m" in str(dir):
@@ -24,6 +28,8 @@ def create_label(dir, part_dir, interaction_metric=None, metric=None, legend_con
         dataset = "webis_reddit"
     elif "reddit_submissions" in str(dir):
         dataset = "reddit_submissions"
+    elif "wikipedia" in str(dir):
+        dataset = "wikipedia paragraphs"
     else:
         dataset = "Unknown dataset"
 
@@ -77,6 +83,7 @@ def label_to_color_id(label):  # label with different color_id -> different colo
 
 # this can be used to fix some experiment_ids to colors
 def parse_colors_dict(colors_dict, legend_conf):
+
     if legend_conf == "qd":
         for d, c in colors_dict.items():
             if "Q20" in d:
@@ -97,6 +104,22 @@ def parse_colors_dict(colors_dict, legend_conf):
                 colors_dict[d] = "tab:red"
             else:
                 colors_dict[d] = "black"
+
+    elif legend_conf == "datasets":
+        for d, c in colors_dict.items():
+            if "webis" in d:
+                colors_dict[d] = "tab:orange"
+            elif "reddit_submissions" in d.lower():
+                colors_dict[d] = "tab:red"
+            elif "100m_tw" in d.lower():
+                colors_dict[d] = "tab:blue"
+            elif "senator" in d.lower():
+                colors_dict[d] = "tab:green"
+            elif "wikipedia" in d:
+                colors_dict[d] = "tab:gray"
+            else:
+                colors_dict[d] = "black"
+
     else:
         return colors_dict
 
@@ -105,13 +128,15 @@ def parse_colors_dict(colors_dict, legend_conf):
 
 
 def metric_name_parser(metric_name):
-    metric_name_parser_dict = {"dataset_lens": "unique_posts_generated"}
-    if metric_name in metric_name_parser_dict:
-        return metric_name_parser_dict[metric_name]
+    metric_name_parser_dict = {
+        "llama_quality_scale_cap_250": "Quality",
+        "cos_diversity_stella_cap_250": "Semantic Diversity"
+    }
+    return metric_name_parser_dict.get(metric_name, metric_name)
 
-    metric_name = metric_name.replace("ppls", "perplexity_")
-    metric_name = metric_name.replace("mistralai/", "")
-    return metric_name
+def xlabel_parser(label):
+    parsedict = {"ai_ratio": "Synthetic data ratio"}
+    return parsedict.get(label, label)
 
 
 def load_results(directories):
@@ -157,6 +182,7 @@ if __name__ == "__main__":
     parser.add_argument("--assert-n-datapoints", type=int, default=None, help="Assert number of datapoints to shade by (e.g. seeds).")
     parser.add_argument("--plot-2D", nargs="+", help="Plot 2D graph of the metrics", default=None)
     parser.add_argument("--legend-conf", type=str, help="Plot 2D graph of the metrics", default=None)
+    parser.add_argument("--no-legend", action="store_true", help="Do not show legend")
 
     parser.add_argument("--violin", action="store_true")
     parser.add_argument("--per-seed", action="store_true")
@@ -172,7 +198,6 @@ if __name__ == "__main__":
     # args.assert_n_datapoints = False
     # print("NOOO ASSERTING datapoints")
     # time.sleep(1)
-
 
     print("N_dirs:", len(args.directories))
     args.directories = sorted(args.directories, key=lambda d: (d.split("/")[0], int(d.split("generated_")[1].split("_human")[0])))
@@ -307,7 +332,7 @@ if __name__ == "__main__":
 
     labels = list(label_metric_dict.keys())
     ys = [label_metric_dict[l] for l in labels]
-    linewidths = [label_linewith_dict[l] * 5 for l in labels]
+    linewidths = [label_linewith_dict[l] * 20 for l in labels]
     linestyles = ["--" if "input" in l else "-" for l in labels]
 
     # label with the same color_id will have the same colors
@@ -320,14 +345,27 @@ if __name__ == "__main__":
         with open('.cache/colors.json', 'r') as file:
             loaded_colors_dict = json.load(file)
         if loaded_colors_dict.keys() == color_id_to_color_dict.keys():
-            print("Loading colors from cache")
+            cprint("Loading colors from cache", "red")
             color_id_to_color_dict = loaded_colors_dict
     with open('.cache/colors.json', 'w') as file:
         json.dump(color_id_to_color_dict, file, indent=4)
 
     colors = [color_id_to_color_dict[color_id] for color_id in color_ids]
 
+    # ylabel = f"{'Relative ' if args.normalize else 'Absolute '}"+metric_name_parser(args.metric)
     ylabel = metric_name_parser(args.metric)
+    xlabel = xlabel_parser(args.interaction_metric if args.interaction_plots else "Generation")
+
+    label_dict = {
+        "webis_reddit": "Webis Reddit",
+        "100M_twitter": "100M Twitter",
+        "reddit_submissions": "Reddit Submissions",
+        "senators_tweets": "Senators Tweets",
+        "wikipedia paragraphs": "Wikipedia",
+    }
+    labels = [label_dict.get(label, label) for label in labels]
+
+
 
     plot_and_save(
         # xs are ys.keys() and will be sorted
@@ -338,40 +376,15 @@ if __name__ == "__main__":
         linestyles=linestyles,
         violin=args.violin,
         ylabel=ylabel,
-        xlabel=args.interaction_metric if args.interaction_plots else "Generation",
+        xlabel=xlabel,
         save_path=args.save_path,
         no_show=args.no_show,
         log=args.log,
         # ylim=(0, 1.2) if args.normalize else None,
         assert_n_datapoints=args.assert_n_datapoints,
         scatter=args.scatter,
-        fontsize=30,
+        fontsize=40,
+        label_fontsize=50,
+        no_legend=args.no_legend,
+        subplot_adjust_args={"left": 0.14, "right": 0.99, "top": 0.99, "bottom": 0.15},
     )
-
-    exit()
-
-    # if metric != 'political_bias':
-    for i in range(len(metric_values)):
-
-        if args.metric == 'political_bias':
-            print("Political bias")
-            print(metric_values[i])
-
-        plot_metric_distributions(metric_values[i], args.metric, dir_labels[i], args.no_show)
-
-    # By default the 2D plot is toxicity x political bias
-    if args.plot_2D:
-        assert len(args.plot_2D) == 2, "Please provide exactly 2 metrics to plot in 2D."
-
-        y1s, y2s = [], []
-        for dir, res in all_results.items():
-
-            y1 = res[args.plot_2D[0]][:n_generations]
-            y2 = res[args.plot_2D[1]][:n_generations]
-            save_path = args.save_path
-            y1s.append(y1)
-            y2s.append(y2)
-
-
-        plot_2D(y1s, y2s, dir_labels, save_path, args.no_show, ylabel=args.plot_2D[1], xlabel=args.plot_2D[0])
-            

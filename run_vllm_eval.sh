@@ -15,7 +15,23 @@
 start_time=$(date +%s)
 
 seed_paths=(
-  webis_clusters_results_v2/*webis*cluster*_1/generated_*_*/*
+#  simulation_results/human_ai_ratio_*100m*type_standard*_1/generated_*_*/*
+#  simulation_results/human_ai_ratio_*webis*type_standard*_1/generated_*_*/*
+#  quality_results/*_merged_*_1/generated_*_*/*
+
+#  simulation_results/webis_reddit_clusters/clusters_dataset_webis*_1/generated_*_*/*
+#  simulation_results/100m_tweets_clusters/clusters_dataset_100m_tweets*_1/generated_*_*/*
+#  simulation_results/reddit_submissions_clusters/clusters_dataset_reddit_submissions_*_1/generated_*_*/*
+
+#  simulation_results/reddit_submissions_clusters/clusters_dataset_reddit_submissions_*_1/generated_*_*/*
+#  simulation_results/reddit_submissions_clusters/clusters_dataset_reddit_submissions_*_1/generated_500_*/*
+#  simulation_results/reddit_submissions_clusters/clusters_dataset_reddit_submissions_*_1/generated_500_*/*
+#  simulation_results/wikipedia_clusters/clusters_dataset_wikipedia_*_1/generated_*_*/*
+  simulation_results/merged_clusters/clusters_dataset_merged_*_1/generated_*_*/*
+
+#  quality_results/*wikipedia*_1/generated_*_*/*
+
+#  webis_clusters_results_v2/*webis*cluster*_1/generated_*_*/*
 #  quality_results/*senator_*short*_1/generated_*_*/*
 #  quality_results/*senator*long*_1/generated_*_*/*
 #  quality_results/*100m*short*_1/generated_*_*/*
@@ -48,10 +64,8 @@ echo "Number of paths: ${#filtered_paths[@]}"
 source /linkhome/rech/genini01/utu57ed/.bashrc
 module purge
 module load arch/h100
-module load python/3.10.4
-conda activate vllm
-
-#conda activate vllm_311
+module load python/3.12.2
+conda activate vllm_312
 
 echo "Launching server"
 
@@ -89,8 +103,8 @@ done
 echo "Launching clients"
 module purge
 module load arch/h100
-module load python/3.11.5
-conda activate eval_311
+module load python/3.12.2
+conda activate eval_312
 
 max_parallel=30  # Maximum number of parallel processes
 current_parallel=0  # Counter for active processes
@@ -99,9 +113,20 @@ current_parallel=0  # Counter for active processes
 (
 
 for i in "${!filtered_paths[@]}"; do
-  python evaluate_generations.py --llama-quality-scale --seed-dir ${filtered_paths[$i]} --cap 250 --generations 0 15 16 17 18 19 &
-#  python evaluate_generations.py --llama-quality-scale --seed-dir ${filtered_paths[$i]} --cap 250 &
+#  python evaluate_generations.py --llama-quality-scale --seed-dir ${filtered_paths[$i]} --cap 250 --generations 0 15 16 17 18 19 &
+#  ((current_parallel++))
+
+  python evaluate_generations.py --llama-quality-scale --partition webis_reddit --seed-dir ${filtered_paths[$i]} --cap 160 --generations 0 15 16 17 18 19 &
+  python evaluate_generations.py --llama-quality-scale --partition 100m_tweets --seed-dir ${filtered_paths[$i]} --cap 160 --generations 0 15 16 17 18 19 &
+  python evaluate_generations.py --llama-quality-scale --partition wikipedia --seed-dir ${filtered_paths[$i]} --cap 160 --generations 0 15 16 17 18 19 &
+
+#  python evaluate_generations.py --llama-quality-scale --partition webis_reddit --seed-dir ${filtered_paths[$i]} --cap 80 --generations &
+#  python evaluate_generations.py --llama-quality-scale --partition 100m_tweets --seed-dir ${filtered_paths[$i]} --cap 80 --generations &
+#  python evaluate_generations.py --llama-quality-scale --partition wikipedia --seed-dir ${filtered_paths[$i]} --cap 80 --generations &
   ((current_parallel++))
+  ((current_parallel++))
+  ((current_parallel++))
+
   echo "Current parallel" $current_parallel
 
   if (( current_parallel >= max_parallel )); then

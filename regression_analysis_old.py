@@ -206,21 +206,21 @@ def plot_coefficient_intervals(
     # enfoce names to be of the same length
 
     names = [{
-                 'kl_entropy_cap_10000_k_5': "KL-Entropy (k=5)",
-                 'kl_entropy_cap_10000_k_1000': "KL-Entropy (k=1000)",
-                 "cos_diversity_cap_10000": "Cosine diversity",
-                 'knn_50_cos_diversity_cap_10000': 'k-nn Cosine diversity (k=50)',
-                 'knn_1000_cos_diversity_cap_10000': 'k-nn Cosine diversity (k=1000)',
-                 'gaussian_aic_cap_10000': "Gaussianity",
-                 'llama_quality_scale': "Quality",
-                 'diversity_selfbleu_cap_10000': 'Self-BLEU',
-                 'text_len_cap_10000': 'Text length',
-                 'n_unique_words_total_cap_10000': 'Vocabulary size',
-                 'toxicity_cap_10000': "Toxicity",
-                 'positivity_cap_10000': "Positivity",
-                 'ttr_cap_10000': "TTR",
-                 'word_entropy_cap_10000': "Word entropy",
-             }.get(n, n) for n in names]
+        'kl_entropy_cap_10000_k_5': "KL-Entropy (k=5)",
+        'kl_entropy_cap_10000_k_1000': "KL-Entropy (k=1000)",
+        "cos_diversity_cap_10000": "Cosine diversity",
+        'knn_50_cos_diversity_cap_10000': 'k-nn Cosine diversity (k=50)',
+        'knn_1000_cos_diversity_cap_10000': 'k-nn Cosine diversity (k=1000)',
+        'gaussian_aic_cap_10000': "Gaussianity",
+        'llama_quality_scale': "Quality",
+        'diversity_selfbleu_cap_500': 'Self-BLEU',
+        'text_len_cap_10000': 'Text length',
+        'n_unique_words_total_cap_10000': 'Vocabulary size',
+        'toxicity_cap_10000': "Toxicity",
+        'positivity_cap_10000': "Positivity",
+        'ttr_cap_10000': "TTR",
+        'word_entropy_cap_10000': "Word entropy",
+    }.get(n, n) for n in names]
     names = [n.split("_cap_")[0] for n in names]
 
     # names = [n.split("_cap_")[0] for n in names]

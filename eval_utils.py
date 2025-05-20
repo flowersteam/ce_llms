@@ -7,32 +7,52 @@ import pickle
 import json
 from termcolor import cprint
 
-from nltk import word_tokenize, sent_tokenize
+try:
+    from nltk import word_tokenize, sent_tokenize
+except:
+    print("Skipping nltk import")
 
-
-from transformers import AutoModelForCausalLM, pipeline
+try:
+    from transformers import AutoModelForCausalLM, pipeline
+    from transformers import BertTokenizer, BertModel
+    from transformers import AutoTokenizer, AutoModelForMaskedLM
+except:
+    print("Skipping transformers import")
 
 from sklearn.metrics import pairwise_distances
 from sklearn.linear_model import LogisticRegression
 from sklearn.metrics import log_loss
 
-from Levenshtein import ratio
 from scipy.spatial.distance import pdist
 from scipy.stats import entropy
 
 from nltk.sentiment.vader import SentimentIntensityAnalyzer
 
-from detoxify import Detoxify
+try:
+    from detoxify import Detoxify
+except:
+    print("Skipping pol_classifier_cleaned import")
+
 
 from tqdm import tqdm
 
-from langkit import extract, light_metrics
-from fast_bleu import SelfBLEU as fast_SelfBLEU
+try:
+    from langkit import extract, light_metrics
+except:
+    print("Skipping langkit import")
+
+try:
+    from fast_bleu import SelfBLEU as fast_SelfBLEU
+except:
+    print("Skipping fast_bleu import")
+
 import pandas as pd
 
 import torch
-from transformers import BertTokenizer, BertModel
-from pol_classifier_cleaned import evaluate_single_text
+try:
+    from pol_classifier_cleaned import evaluate_single_text
+except:
+    print("Skipping pol_classifier_cleaned import")
 
 def get_words(text):
     return word_tokenize(text)
@@ -47,13 +67,14 @@ from openai import AzureOpenAI, OpenAI
 import os
 client = None
 
-import concurrent.futures
-from sacrebleu import BLEU
 
 from multiprocessing import Pool
 from functools import partial
-from sacrebleu.metrics import BLEU
 
+try:
+    from sacrebleu.metrics import BLEU
+except:
+    print("Skipping sacrebleu import")
 
 def calculate_single_bleu(idx, completion_sequences, max_ngram_order=4):
     hypothesis = completion_sequences[idx]
@@ -186,7 +207,7 @@ def llama_pol_lean(texts):
         if t_i % 50 == 0 and t_i > 0:
             print(f"llama political lean: [{t_i}/{len(texts)}]")
 
-        leans, generation, lprob, prob = evaluate_single_text(text, model = 'preloaded', client = client)
+        leans, generation, lprob, prob = evaluate_single_text(text, model='preloaded', client=client)
         leans_list.append(leans[0])
         generation_list.append(generation)
         lprob_list.append(lprob)
@@ -381,53 +402,53 @@ def llama_quality_scale(texts):
     return llama_metric(texts, prompt_blueprint=prompt)
 
 
-def llama_quality(texts):
-    scores = []
-    global client
-    if client is None:
-        client = OpenAI(
-            api_key="EMPTY",
-            base_url="http://localhost:8000/v1",
-        )
-
-    for t_i, text in enumerate(texts):
-        if t_i % 50 == 0 and t_i > 0:
-            print(f"llama quality: [{t_i}/{len(texts)}]")
-
-        prompt = "You are a text quality judge.\n" + \
-                 "When judging the quality pay attention to:\n" + \
-                 "\t- broken/cut-off text\n" + \
-                 "\t- very repetitive text\n" + \
-                 "\t- grammar\n" + \
-                 "\t- semantic plausability\n" + \
-                 "\t- lexical complexity\n" + \
-                 "\nJudge the quality of a given internet post and reply ONLY with a integer from 0-2.\n" + \
-                 "\t0 - low quality\n\t1 - intermediate quality\n\t2 - good quality\n\n" + \
-                 f"Here is the post: {text}\n\n" + \
-                 "Reply ONLY with the score (0,1,2). DO NOT reply with text."
-
-        # completion = client.beta.chat.completions.parse(
-        completion = client.chat.completions.create(
-            model="llama",
-            temperature=0.01,
-            messages=[
-                {"role": "system", "content": prompt},
-            ],
-            max_tokens=1,
-            logprobs=True,
-            top_logprobs=20,
-        )
-
-        score = None
-        for tlp in completion.choices[0].logprobs.content[0].top_logprobs:
-            token = tlp.token
-            if token.isdigit():
-                score = int(token)
-                break
-
-        scores.append(score)
-
-    return scores
+# def llama_quality(texts):
+#     scores = []
+#     global client
+#     if client is None:
+#         client = OpenAI(
+#             api_key="EMPTY",
+#             base_url="http://localhost:8000/v1",
+#         )
+#
+#     for t_i, text in enumerate(texts):
+#         if t_i % 50 == 0 and t_i > 0:
+#             print(f"llama quality: [{t_i}/{len(texts)}]")
+#
+#         prompt = "You are a text quality judge.\n" + \
+#                  "When judging the quality pay attention to:\n" + \
+#                  "\t- broken/cut-off text\n" + \
+#                  "\t- very repetitive text\n" + \
+#                  "\t- grammar\n" + \
+#                  "\t- semantic plausability\n" + \
+#                  "\t- lexical complexity\n" + \
+#                  "\nJudge the quality of a given internet post and reply ONLY with a integer from 0-2.\n" + \
+#                  "\t0 - low quality\n\t1 - intermediate quality\n\t2 - good quality\n\n" + \
+#                  f"Here is the post: {text}\n\n" + \
+#                  "Reply ONLY with the score (0,1,2). DO NOT reply with text."
+#
+#         # completion = client.beta.chat.completions.parse(
+#         completion = client.chat.completions.create(
+#             model="llama",
+#             temperature=0.01,
+#             messages=[
+#                 {"role": "system", "content": prompt},
+#             ],
+#             max_tokens=1,
+#             logprobs=True,
+#             top_logprobs=20,
+#         )
+#
+#         score = None
+#         for tlp in completion.choices[0].logprobs.content[0].top_logprobs:
+#             token = tlp.token
+#             if token.isdigit():
+#                 score = int(token)
+#                 break
+#
+#         scores.append(score)
+#
+#     return scores
 
 def llama_metric(texts, prompt_blueprint):
     scores = []
@@ -663,8 +684,6 @@ def get_political_lean_batch(texts):
     return labels, scores
 
 
-def compute_normalized_levenshtein_diversity(texts):
-    return 1 - np.mean(pdist(np.array(texts).reshape((-1, 1)), metric=ratio))
 
 
 def calculate_ttr(text):
@@ -768,7 +787,6 @@ def fit_logreg(embs_1, embs_2, max_iter=1):
 
 
 
-from transformers import AutoTokenizer, AutoModelForMaskedLM
 class ModernBertEmbedder:
 
     def __init__(self, CLS_token=True):

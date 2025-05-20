@@ -348,7 +348,7 @@ if __name__ == "__main__":
         'n_unique_words_total_cap_10000',
         'llama_quality_scale',
         'word_entropy_cap_10000',
-        'diversity_selfbleu_cap_10000',  # actually 1000
+        'diversity_selfbleu_cap_500',
         'cos_diversity_cap_10000',
         'knn_50_cos_diversity_cap_10000',
         'knn_1000_cos_diversity_cap_10000',

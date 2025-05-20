@@ -15,3 +15,5 @@ Levenshtein==0.26.1
 langkit==0.0.35
 sacrebleu==2.5.1
 openai==1.61.0
+sentence-transformers==4.0.2
+IPython

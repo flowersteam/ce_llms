@@ -104,8 +104,6 @@ if __name__ == "__main__":
     colors = defaultdict(list)
     markers = defaultdict(list)
     for dir, res in all_results.items():
-        if "llama_quality_scale_cap_250" not in res:
-            continue
         for generation in args.generations:
             for metric in args.metrics:
 

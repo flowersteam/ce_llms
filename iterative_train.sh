@@ -5,12 +5,16 @@
 #SBATCH --time=1:55:59
 #SBATCH --gres=gpu:1
 ##SBATCH --array=0-119 # 5 (seeds) x 4 (dataset types) x 6 (ratios)
-##SBATCH --array=0-29 # 5 (seeds) x 1 (dataset types) x 6 (ratios)
-##SBATCH --array=0-89 # 5 (seeds) x 3 (dataset types) x 6 (ratios)
-#SBATCH --array=0-59 # 5 (seeds) x 2 (dataset types) x 6 (ratios)
+#SBATCH --array=0-29 # 5 (seeds) x 1 (dataset types) x 6 (ratios)
+#############
+##SBATCH --array=0-9 # D      # 5 (seeds) x 1 (dataset types) x 6 (ratios)
+##SBATCH --array=10-19 # R    # 5 (seeds) x 1 (dataset types) x 6 (ratios)
+##SBATCH --array=20-29 # R     # 5 (seeds) x 1 (dataset types) x 6 (ratios)
+##########
 #SBATCH -o logs/iterative_train_%A_%a.log
 #SBATCH -e logs/iterative_train_%A_%a.log
 #SBATCH -J iterative_train
+##SBATCH --qos=qos_gpu_h100-dev
 
 start_time=$(date +%s)
 
@@ -29,9 +33,9 @@ ratios_len=${#ratios[@]}
 # 4 dataset types
 #dattypes=("Q20" "Q40" "Q60" "Q80")
 #dattypes=("Q51" "Q80")
-#dattypes=("standard")
+dattypes=("standard")
 #dattypes=("short" "medium" "long")
-dattypes=("short" "long")
+#dattypes=("short" "long")
 dattypes_len=${#dattypes[@]}
 
 ratio_id=$((SLURM_ARRAY_TASK_ID % ratios_len))
@@ -62,14 +66,14 @@ echo "human_dataset_size:"$per_participant_human_dataset_size
 
 # mixed
 mixed_models_options=(
-  # llama 3.1 1B
-  "/lustre/fsn1/projects/rech/imi/utu57ed/.cache/huggingface/hub/models--unsloth--Llama-3.2-1B/snapshots/1d05b8ce9cd75f6baca1ccebf9653626ac261438"
+  # llama 3.2 1B
+  "/lustre/fsn1/projects/rech/imi/utu57ed/.cache/huggingface/hub/models--unsloth--Llama-3.2-1B/snapshots/8330ca72fe8cf1fc86a8b20b4835dc08fbbd2251"
   # qwen 2.5 1.5b
-  "/lustre/fsn1/projects/rech/imi/utu57ed/.cache/huggingface/hub/models--unsloth--Qwen2.5-1.5B/snapshots/8951671def651bbedbcdea3751f46cf35e78dfa9"
+  "/lustre/fsn1/projects/rech/imi/utu57ed/.cache/huggingface/hub/models--unsloth--Qwen2.5-1.5B/snapshots/2d0a015faee2c1af360a6725a30c4d7a258ac4d4"
   # smolm (1.7B)
   "/lustre/fsn1/projects/rech/imi/utu57ed/.cache/huggingface/hub/models--HuggingFaceTB--SmolLM-1.7B/snapshots/d7449ff7241c863f3e8accc475155f0f97afa011"
   # falcon (1b)
-  "/lustre/fsn1/projects/rech/imi/utu57ed/.cache/huggingface/hub/models--tiiuae--Falcon3-1B-Base/snapshots/34183642457812e78b53466798c3a818485ac969"
+  "/lustre/fsn1/projects/rech/imi/utu57ed/.cache/huggingface/hub/models--tiiuae--Falcon3-1B-Base/snapshots/cb37ef3559b157b5c9d9226296ba01a5162da1f7"
 )
 model="mixed"
 
@@ -82,18 +86,21 @@ model="mixed"
 #dataset_name="reddit_submissions"
 #split="all"
 
-dataset_name="senator_tweets"
-split="all"
+#dataset_name="senator_tweets"
+#split="all"
 
-#dataset_name="senator_submissions_merged"
+#dataset_name="wikipedia"
+#split="all"
+
+#dataset_name="merged"
 #split="all"
 
 source /linkhome/rech/genini01/utu57ed/.bashrc
 
 module purge
 module load arch/h100
-module load python/3.11.5
-conda activate unsloth_311
+module load python/3.12.2
+conda activate unsloth_312
 
 n_part=1
 accumulate=1
@@ -110,7 +117,7 @@ temp=1.5
 min_p=0.2
 n_generations=20
 
-exp_path=quality_results/human_ai_ratio_dataset_${dataset_name}_type_${dattype}_participants_${n_part}/generated_${per_participant_ai_dataset_size}_human_${per_participant_human_dataset_size}_unsloth/seed_${seed}_${datetime}
+exp_path=simulation_results/human_ai_ratio_dataset_${dataset_name}_type_${dattype}_participants_${n_part}/generated_${per_participant_ai_dataset_size}_human_${per_participant_human_dataset_size}_unsloth/seed_${seed}_${datetime}
 
 mkdir -p $exp_path
 log_path=$exp_path/log.txt
@@ -186,7 +193,7 @@ do
 done
 
 
-conda activate eval_311
+conda activate eval_312
 python evaluate_generations.py --emb --seed-dir $exp_path
 
 end_time=$(date +%s)

@@ -14,57 +14,8 @@ from umap import UMAP
 
 stella_embedder = None
 
-def get_embeddings(cluster):
-    global stella_embedder
-    if stella_embedder is None:
-        stella_embedder = eval_utils.StellaEmbedder(multigpu=True)
-    return np.array(stella_embedder.add_embeddings(cluster, batch_size=256)['stella_embeddings'])
 
-
-# def get_umap(embeddings, n_components=2, n_neighbors=5, min_dist=0.01, sample_size=90_000):
-#     # dataset_path = "./data/webis/prepared-quality-cleaned-200-minus-20-plus-corpus-webis-tldr-17"
-#     # print("Load embeddings")
-#     # embeddings_path = "./data/webis/prepared-quality-embeddings-cleaned-200-minus-20-plus-corpus-webis-tldr-17_embeddings.npy"
-#     # with open(embeddings_path, "rb") as f:
-#     #     embeddings = np.load(f)
-#
-#     # embedding size
-#     sample_embeddings = embeddings[:sample_size]
-#     umap = UMAP(n_components=n_components, metric="cosine", n_neighbors=n_neighbors, min_dist=min_dist).fit(sample_embeddings)
-#     sample_projections = umap.transform(sample_embeddings)
-#     return umap, sample_embeddings, sample_projections
-
-def get_webis_emb_proj_lookup():
-    dataset_path = "./data/webis/prepared-quality-cleaned-200-minus-20-plus-corpus-webis-tldr-17"
-
-    split_dataset = datasets.load_from_disk(dataset_path)
-    dataset = datasets.concatenate_datasets([split_dataset['train'], split_dataset['test']])
-
-    # embeddings
-    print("Embedding")
-    embeddings_path = "./data/webis/prepared-quality-embeddings-cleaned-200-minus-20-plus-corpus-webis-tldr-17_embeddings.npy"
-    # from create_webis_miniclusters import compute_embeddings
-    # embeddings = compute_embeddings(dataset,save_embeddings_path=embeddings_path)
-    # load embeddings
-    with open(embeddings_path, "rb") as f:
-        embeddings = np.load(f)
-
-    embeddings_lookup = dict(zip(dataset['text'], embeddings))
-    print("Creating lookup")
-
-    # projections
-    print("Projecting")
-    sample_size = 90_000
-    umap = UMAP(n_components=2, metric="cosine", n_neighbors=5, min_dist=0.01).fit(embeddings[:sample_size])
-    projections = umap.transform(embeddings)
-    print("Creating lookup")
-    projections_lookup = dict(zip(dataset['text'], projections))
-
-    return embeddings_lookup, projections_lookup
-
-
-
-def evaluate_clusters(clusters):
+def evaluate_clusters(clusters, dataset_embeddings, dataset_projections):
     per_cluster_metrics = defaultdict(dict)
 
     for c_i, (cluster_path, cluster_results) in enumerate(clusters.items()):
@@ -72,13 +23,9 @@ def evaluate_clusters(clusters):
         cluster_eval_time_start = time.time()
         cluster = datasets.load_from_disk(cluster_path)
 
-        embeddings_lookup, projections_lookup = eval_utils.get_or_compute_cache(
-            cache_path=str(f".cache/webis_lookups.pickle"),
-            compute_fn=get_webis_emb_proj_lookup
-        )
-
-        cluster_embeddings = np.stack(list(embeddings_lookup[t] for t in cluster['text']))
-        cluster_projections = np.array([projections_lookup[t] for t in cluster['text']])
+        cluster_indices = cluster_results['cluster_indices']
+        cluster_embeddings = dataset_embeddings[cluster_indices]
+        cluster_projections = dataset_projections[cluster_indices]
 
         # subsample
         cap_size = 250
@@ -104,7 +51,6 @@ def evaluate_clusters(clusters):
         s = time.time()
         cluster_results = {k+f"_cap_{cap_size}": v for k, v in eval_utils.compute_quick_metrics(cluster_capped).items()}
         cluster_results.update({k+f"_cap_{mid_cap}": v for k, v in eval_utils.compute_quick_metrics(cluster_mid_capped).items()})
-        # cluster_results.update({k+f"_cap_{big_cap}": v for k, v in eval_utils.compute_quick_metrics(cluster_big_capped).items()})
         print("Time:", time.time()-s)
 
         print("Quality")
@@ -152,7 +98,7 @@ def evaluate_clusters(clusters):
         print("Time:", time.time()-s)
 
         sb_cap = 500  # 10k is too long
-        cluster_results[f"selfbleu_cap_{sb_cap}"], cluster_results[f"diversity_selfbleu_cap_{mid_cap}"] = \
+        cluster_results[f"selfbleu_cap_{sb_cap}"], cluster_results[f"diversity_selfbleu_cap_{sb_cap}"] = \
             eval_utils.compute_selfbleu_parallel(
                 cluster.select(np.random.choice(range(len(cluster)), sb_cap))["text"],
                 n_procs=32
@@ -169,7 +115,7 @@ def evaluate_clusters(clusters):
         print("Time:", time.time()-s)
 
         print("Diversity knn")
-        s=time.time()
+        s = time.time()
         d_matrix = None
         for k in [5, 10, 25, 50]:
             cos_div, d_matrix = eval_utils.compute_knn_cos_diversity(
@@ -205,7 +151,7 @@ def evaluate_clusters(clusters):
         # print("Time:", time.time()-s)
 
         print("Gaussianess")
-        s=time.time()
+        s = time.time()
         cluster_results[f'gaussian_loss_cap_{cap_size}'],\
         cluster_results[f'gaussian_bic_cap_{cap_size}'],\
         cluster_results[f'gaussian_aic_cap_{cap_size}'] = eval_utils.compute_gaussianes(cluster_projections_capped)
@@ -219,29 +165,29 @@ def evaluate_clusters(clusters):
         cluster_results[f'gaussian_aic_cap_{big_cap}'] = eval_utils.compute_gaussianes(cluster_projections_big_capped)
         print("Time:", time.time()-s)
 
-        if torch.cuda.is_available():
-            # toxicity
-            print("Toxicity")
-            s = time.time()
-            cluster_results[f"toxicity_cap_{cap_size}"] = eval_utils.get_toxicity_batch(cluster_capped["text"])
-            # check if cuda available
-            cluster_results[f"toxicity_cap_{mid_cap}"] = eval_utils.get_toxicity_batch(cluster_mid_capped["text"])
-            # cluster_results[f"toxicity_cap_{big_cap}"] = eval_utils.get_toxicity_batch(cluster_big_capped["text"])
-            print("Time:", time.time()-s)
+        # toxicity
+        print("Toxicity")
+        s = time.time()
+        cluster_results[f"toxicity_cap_{cap_size}"] = eval_utils.get_toxicity_batch(cluster_capped["text"])
+        # check if cuda available
+        cluster_results[f"toxicity_cap_{mid_cap}"] = eval_utils.get_toxicity_batch(cluster_mid_capped["text"])
+        # cluster_results[f"toxicity_cap_{big_cap}"] = eval_utils.get_toxicity_batch(cluster_big_capped["text"])
+        print("Time:", time.time()-s)
 
-            print("Positivity")
-            s = time.time()
-            cluster_results[f"positivity_cap_{cap_size}"] = eval_utils.get_positivity_batch(cluster_capped["text"])
-            cluster_results[f"positivity_cap_{mid_cap}"] = eval_utils.get_positivity_batch(cluster_mid_capped["text"])
-            # cluster_results[f"positivity_cap_{big_cap}"] = eval_utils.get_positivity_batch(cluster_big_capped["text"])
-            print("Time:", time.time()-s)
+        print("Positivity")
+        s = time.time()
+        cluster_results[f"positivity_cap_{cap_size}"] = eval_utils.get_positivity_batch(cluster_capped["text"])
+        cluster_results[f"positivity_cap_{mid_cap}"] = eval_utils.get_positivity_batch(cluster_mid_capped["text"])
+        # cluster_results[f"positivity_cap_{big_cap}"] = eval_utils.get_positivity_batch(cluster_big_capped["text"])
+        print("Time:", time.time()-s)
 
-            print("Reading level")
-            s=time.time()
-            cluster_results[f'aggregate_reading_level_cap_{cap_size}'] = eval_utils.aggregate_reading_level(texts=cluster_capped['text'])
-            cluster_results[f'aggregate_reading_level_cap_{mid_cap}'] = eval_utils.aggregate_reading_level(texts=cluster_mid_capped['text'])
-            # cluster_results[f'aggregate_reading_level_cap_{big_cap}'] = eval_utils.aggregate_reading_level(texts=cluster_big_capped['text'])
-            print("Time:", time.time()-s)
+        print("Reading level")
+        s = time.time()
+        cluster_results[f'aggregate_reading_level_cap_{cap_size}'] = eval_utils.aggregate_reading_level(texts=cluster_capped['text'])
+        cluster_results[f'aggregate_reading_level_cap_{mid_cap}'] = eval_utils.aggregate_reading_level(texts=cluster_mid_capped['text'])
+        # cluster_results[f'aggregate_reading_level_cap_{big_cap}'] = eval_utils.aggregate_reading_level(texts=cluster_big_capped['text'])
+
+        print("Time:", time.time()-s)
 
         cluster_results["cluster_path"] = cluster_path
 
@@ -252,7 +198,6 @@ def evaluate_clusters(clusters):
         del d_matrix
 
     return per_cluster_metrics
-
 
 
 def load_clusters(file):
@@ -275,58 +220,58 @@ def extract_cluster_metrics(cluster_results, metrics_to_plot):
     return metric_values
 
 
-def select_representative_clusters(cluster_results, metric_values, edge_pc=1):
-    # calculate metric safe intervals (lower and upper 10%)
-    metric_intervals = {}
-    for metric, values in metric_values.items():
-        values = sorted(values)
-        # find percentiles
-        lower = np.percentile(values, edge_pc)
-        upper = np.percentile(values, 100-edge_pc)
-
-        metric_intervals[metric] = (lower, upper)
-
-    must_keep_clusters = set()
-
-    for cluster, c_metrics in cluster_results.items():
-        for m, vs in c_metrics.items():
-            if vs < metric_intervals[m][0] or vs > metric_intervals[m][1]:
-                must_keep_clusters.add(cluster)
-
-    cluster_results = {k: v for k, v in cluster_results.items() if k in must_keep_clusters}
-    return cluster_results
-
-
-# python evaluate_webis_clusters.py viz_results/webis_miniclusters_merge_80k/results/umap_\(5\,0.01\)_kmeans_\(1000\)_no_noise.pkl
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description='Analyze clustering results')
-    parser.add_argument('clustering_pkl', type=str)
+    parser.add_argument('--clustering-pkl', required=True, type=str, default="./data/webis/webis_dataset_clusters/results/umap_(5,0.0001)_gmm_(5).pkl")
+    parser.add_argument('--dataset-path', required=True, type=str, default="./data/webis/webis_dataset_with_qualities")
+    parser.add_argument('--embeddings-path', required=True, type=str, default="./data/webis/webis_dataset_embeddings.npy")
+    parser.add_argument('--projections-path', required=True, type=str, default="./data/webis/webis_dataset_projections.npy")
+    parser.add_argument('--clustering-evaluation-save-dir', required=True, type=str, default="./data/webis/webis_dataset_clusters/evaluation/")
+
+    start_time = time.time()
 
     args = parser.parse_args()
     all_results = {}
     metric_values_dict = {}
 
+    # assert args.clustering_evaluation_save_path.endswith(os.path.basename(args.clustering_pkl))
+
+    print("Load clusters from: ", args.clustering_pkl)
     cluster_results = load_clusters(args.clustering_pkl)
-    cluster_metrics = evaluate_clusters(cluster_results)
 
-    # save per cluster
+    print("Load dataset from: ", args.dataset_path)
+    dataset = datasets.load_from_disk(args.dataset_path)
+
+    print("Load embeddings from: ", args.embeddings_path)
+    with open(args.embeddings_path, "rb") as f:
+        dataset_embeddings = np.load(f)
+
+    print("Load projections from: ", args.projections_path)
+    with open(args.projections_path, "rb") as f:
+        dataset_projections = np.load(f)
+
+    assert len(dataset) == len(dataset_embeddings) == len(dataset_projections)
+
+    print(f"Evaluating {len(cluster_results)} clusters.")
+    cluster_metrics = evaluate_clusters(
+        clusters=cluster_results,
+        dataset_embeddings=dataset_embeddings,
+        dataset_projections=dataset_projections
+    )
+
+    # save per cluster evaluation results
+    # create directory if it doesn't exist
+    os.makedirs(args.clustering_evaluation_save_dir, exist_ok=True)
+    print("Saving results to:", args.clustering_evaluation_save_dir)
+
     for c, metrics in cluster_metrics.items():
-        save_path = "./clustering_results/"+c.replace("./", "").replace("/", "_")+".pkl"
-        with open(save_path, 'wb') as f:
+        cluster_eval_save_path = os.path.join(
+            args.clustering_evaluation_save_dir, f"{os.path.basename(c)}.pkl"
+        )
+
+        with open(cluster_eval_save_path, 'wb') as f:
             pickle.dump(metrics, f)
-            print("Cluster results saved to:", save_path)
+            print("Cluster results saved to:", cluster_eval_save_path)
 
-    for c, metrics in cluster_metrics.items():
-        save_path = "./aggregated_clustering_results/" + c.replace("./", "").replace("/", "_") + ".pkl"
-        with open(save_path, 'wb') as f:
-            aggregated_metrics = {}
-            for metric_name, metric_value in list(metrics.items()):
-                if metric_name.startswith("text_cap_"):
-                    continue
-                try:
-                    aggregated_metrics[metric_name] = np.mean(metric_value)
-                except:
-                    aggregated_metrics[metric_name] = metric_value
-
-            pickle.dump(aggregated_metrics, f)
-            print("Cluster results saved to:", save_path)
+    end_time = time.time()
+    print("Total time:", end_time - start_time)

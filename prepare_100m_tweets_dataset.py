@@ -2,7 +2,7 @@ import datasets
 from datasets import load_dataset
 import re
 from datetime import datetime
-from eval_utils import llama_quality, llama_is_english
+from eval_utils import llama_is_english
 from dataset_utils import overwrite_to_disk
 def remove_links(batch):
     return {"text": [re.sub(r'http\S+', '', t).rstrip() for t in batch['text']]}

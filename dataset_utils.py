@@ -20,15 +20,24 @@ try:
 except:
     ...
 
-from functools import lru_cache
-
 import inspect
 import sys
 import hashlib
 import numpy as np
 
+datasets_to_merge = {
+    "wikipedia": f"./data/wikipedia/wikipedia_dataset_with_qualities",
+    "webis_reddit": "./data/webis/webis_dataset_with_qualities",
+    "100m_tweets": "data/twitter_100m/100m_tweets_dataset_with_qualities"
+}
+datasets_clusters_to_merge = {
+    "wikipedia": "./data/wikipedia/selected_clusters_indices_to_path.json",
+    "webis_reddit": "./data/webis/selected_clusters_indices_to_path.json",
+    "100m_tweets": "./data/twitter_100m/selected_clusters_indices_to_path.json"
+}
 
-def load_merged_participants_dataset(path_pattern, all_participants, size=None):
+
+def load_merged_participants_dataset(path_pattern, all_participants, size=None, partition_instruction=None):
     """
     path_pattern : 'all_parts' is replaced by part_X for part_X in all_participants
     """
@@ -39,6 +48,10 @@ def load_merged_participants_dataset(path_pattern, all_participants, size=None):
     ds = []
     for part in all_participants:
         d = load_from_disk(path_pattern.replace("all_parts", part))
+
+        if partition_instruction is not None:
+            d = d.filter(lambda x: x['instruction'] == partition_instruction)
+
         d = d.add_column('source', [part]*len(d))
         ds.append(d)
 
@@ -83,77 +96,6 @@ def save_texts_to_csv(texts, filename):
 
 def load_texts_from_csv(filename):
     return list(pd.read_csv(filename, keep_default_na=False)['text'])
-
-
-def load_news_dataset(cache_dir=None, load_n=None, load_frac=1.0, lean=None, seed=1):
-    dataset_folder = "./data/news_dataset/"
-    print(f"Loading news dataset from {dataset_folder}")
-
-    feat_sentiment = ClassLabel(num_classes = 2, names=["Liberal", "Conservative"])
-
-    # dataset_savepath = os.path.join(
-    #     cache_dir, "dataset_cache", f"news_load_n_{load_n}_lean_{lean}_seed_{seed}_{get_current_file_hash()}.save"
-    # )
-
-    dataset_savepath = os.path.join(
-        "data", "dataset_cache", f"news_load_n_{load_n}_lean_{lean}_seed_{seed}.save"
-    )
-
-    if os.path.exists(dataset_savepath):
-        print(f"Loading dataset from cache in: {dataset_savepath}")
-        dataset = load_from_disk(dataset_savepath)
-    
-    else:
-        print(f"path {dataset_savepath} does not exist")
-        print("Loading dataset from files")
-
-        bias_2_lean = {
-            'left': 'Conservative',
-             'right': 'Liberal',
-        }
-            
-        files = [f for f in os.listdir(dataset_folder) if f.endswith(".json")]
-
-        # Initialize an empty list to store data
-        data = {"text": [], "Political Lean": []}
-
-        for filename in trange(len(files)):
-
-            file_path = os.path.join(dataset_folder, files[filename])
-            with open(file_path, "r") as f:
-                entry = json.load(f)
-                content = entry['content']
-                bias = entry['bias_text']
-                if bias in ['left', 'right']:
-                    data["text"].append(content)
-                    data["Political Lean"].append(bias_2_lean[bias])
-
-        # Create the dataset
-        dataset = Dataset.from_dict(data)
-        print (f"Dataset size: {len(dataset)}")
-
-
-        if lean:
-            print('Filtering')
-            dataset = dataset.filter(lambda examples: [p == lean for p in examples['Political Lean']], batched=True, load_from_cache_file=False)
-
-        if load_n is not None:
-
-            load_frac = load_n / len(dataset)
-            dataset = dataset.train_test_split(test_size=1-load_frac, shuffle=True, seed=seed, stratify_by_column="Political Lean")['train']
-
-        elif load_frac != 1.0:
-            dataset = dataset.train_test_split(test_size=1-load_frac, shuffle=True, seed=seed, stratify_by_column="Political Lean")['train']
-
-        # save dataset
-        print (f"Dataset size: {len(dataset)}")
-
-        dataset.save_to_disk(dataset_savepath)
-
-    labels = dataset['Political Lean']
-
-    return dataset, labels, feat_sentiment
-
 
 def get_twitter_instructions(n, prompt = 'neutral'):
     if prompt == 'political':
@@ -208,16 +150,14 @@ def load_senator_tweets_dataset_old(load_n=None, load_frac=1.0, lean=None, seed=
     return sample, None, None
 
 
-def load_reddit_submissions_dataset(load_n=None, load_frac=1.0, lean=None, seed=1, split='train', dataset_type="standard"):
+def get_wikipedia_instructions(n):
+    return [f"Generate an opening wikipedia paragraph."] * n
 
-    dataset_path = f"./data/reddit_submissions/prepared-reddit-submissions-dataset-with-qualities-200-minus-20-plus"
 
-    # if dataset_type == "hq":
-    #     dataset_path += "_llama_scale_hq"
-    # elif dataset_type == "mq":
-    #     dataset_path += "_llama_scale_mq"
-    # elif dataset_type == "lq":
-    #     dataset_path += "_llama_scale_lq"
+def load_wikipedia_dataset(load_n=None, load_frac=1.0, lean=None, seed=1, split='train', dataset_type="standard"):
+
+    dataset_path = f"./data/wikipedia/wikipedia_dataset_with_qualities"
+
     if dataset_type == "Q20":
         dataset_path += "_llama_scale_20"
     elif dataset_type == "Q40":
@@ -226,6 +166,63 @@ def load_reddit_submissions_dataset(load_n=None, load_frac=1.0, lean=None, seed=
         dataset_path += "_llama_scale_60"
     elif dataset_type == "Q80":
         dataset_path += "_llama_scale_80"
+
+    # clusters
+    elif re.match(r"cluster_\d+", dataset_type):
+        cluster_index = int(dataset_type.split("_")[-1])
+        cluster_index_to_path_dict_path = "./data/wikipedia/selected_clusters_indices_to_path.json"
+
+        with open(cluster_index_to_path_dict_path, "r") as f:
+            cluster_index_to_path_dict = json.load(f)
+        dataset_path = cluster_index_to_path_dict[str(cluster_index)]
+    elif dataset_type == "standard":
+        ...
+    else:
+        raise ValueError(f"Type {dataset_type} not recognized.")
+
+    print(f"Loading wikipedia dataset from {dataset_path}")
+    dataset = load_from_disk(dataset_path)
+
+    print(f"Dataset loaded. Size: {len(dataset)}")
+
+    if load_n is not None or load_frac != 1.0:
+        if load_n is None:
+            # load frac != 1.0
+            load_n = int(len(dataset)*load_frac)
+
+        dataset = dataset.shuffle(seed=seed)
+        sample = dataset.select(range(load_n))
+    else:
+        # full dataset
+        sample = dataset.shuffle(seed=seed)
+
+    print("Creating instructions for sample")
+    sample = sample.add_column("instruction", get_wikipedia_instructions(len(sample)))
+
+    return sample, None, None
+
+def load_reddit_submissions_dataset(load_n=None, load_frac=1.0, lean=None, seed=1, split='train', dataset_type="standard"):
+
+    dataset_path = f"./data/reddit_submissions/prepared-reddit-submissions-dataset-with-qualities-200-minus-20-plus"
+    # dataset_path = "data/reddit_submissions/reddit_submissions_dataset_with_qualities" # new
+
+    if dataset_type == "Q20":
+        dataset_path += "_llama_scale_20"
+    elif dataset_type == "Q40":
+        dataset_path += "_llama_scale_40"
+    elif dataset_type == "Q60":
+        dataset_path += "_llama_scale_60"
+    elif dataset_type == "Q80":
+        dataset_path += "_llama_scale_80"
+    # clusters
+    # if dataset type is cluster_[0-9]+
+    elif re.match(r"cluster_\d+", dataset_type):
+        cluster_index = int(dataset_type.split("_")[-1])
+        cluster_index_to_path_dict_path = "./data/reddit_submissions/selected_clusters_indices_to_path.json"
+
+        with open(cluster_index_to_path_dict_path, "r") as f:
+            cluster_index_to_path_dict = json.load(f)
+        dataset_path = cluster_index_to_path_dict[str(cluster_index)]
     elif dataset_type == "standard":
         ...
     else:
@@ -256,14 +253,9 @@ def load_reddit_submissions_dataset(load_n=None, load_frac=1.0, lean=None, seed=
 # before GPT-3
 def load_100m_tweets_dataset(load_n=None, load_frac=1.0, lean=None, seed=1, split='train', dataset_type="standard"):
 
-    dataset_path = "data/twitter_100m/prepared-100m-tweets-english-qualities-cl-before-gpt3-200-minus-20-plus"
+    # dataset_path = "data/twitter_100m/prepared-100m-tweets-english-qualities-cl-before-gpt3-200-minus-20-plus"
+    dataset_path = "data/twitter_100m/100m_tweets_dataset_with_qualities"  # new
 
-    # if dataset_type == "hq":
-    #     dataset_path += "_llama_scale_hq"
-    # elif dataset_type == "mq":
-    #     dataset_path += "_llama_scale_mq"
-    # elif dataset_type == "lq":
-    #     dataset_path += "_llama_scale_lq"
     if dataset_type == "Q20":
         dataset_path += "_llama_scale_20"
     elif dataset_type == "Q40":
@@ -278,6 +270,15 @@ def load_100m_tweets_dataset(load_n=None, load_frac=1.0, lean=None, seed=1, spli
         dataset_path += "_medium"
     elif dataset_type == "long":
         dataset_path += "_long"
+    # clusters
+    # if dataset type is cluster_[0-9]+
+    elif re.match(r"cluster_\d+", dataset_type):
+        cluster_index = int(dataset_type.split("_")[-1])
+        cluster_index_to_path_dict_path = "./data/twitter_100m/selected_clusters_indices_to_path.json"
+
+        with open(cluster_index_to_path_dict_path, "r") as f:
+            cluster_index_to_path_dict = json.load(f)
+        dataset_path = cluster_index_to_path_dict[str(cluster_index)]
     elif dataset_type == "standard":
         ...
     else:
@@ -316,7 +317,8 @@ def get_reddit_instructions(n):
 
 def load_clear_webis_reddit_dataset(load_n=None, load_frac=1.0, lean=None, seed=1, split='train', dataset_type="standard"):
 
-    dataset_path = "./data/webis/prepared-quality-cleaned-200-minus-20-plus-corpus-webis-tldr-17"
+    # dataset_path = "./data/webis/prepared-quality-cleaned-200-minus-20-plus-corpus-webis-tldr-17"
+    dataset_path = "./data/webis/webis_dataset_with_qualities"  # new
 
     if dataset_type == "Q20":
         dataset_path += "_llama_scale_20"
@@ -397,6 +399,22 @@ def remove_trailling_hashtags(batch):
     return {"text": [re.sub(r"(?:\s*#\w+)+$", "", t) for t in batch['text']]}
 
 
+def get_merged_random_instructions(n):
+    dataset_names = datasets_to_merge.keys()
+
+    n_per_dataset = int(np.ceil(n / len(dataset_names)))
+
+    per_dataset_instructions = [get_instructions(dataset_name, n=n_per_dataset) for dataset_name in dataset_names]
+    # assert per dataset instruction length is the same
+    assert all([len(instructions) == n_per_dataset for instructions in per_dataset_instructions])
+
+    # interleave instructions
+    interleaved_instructions = [val for tup in zip(*per_dataset_instructions) for val in tup]
+    interleaved_instructions = interleaved_instructions[:n]
+
+    return interleaved_instructions
+
+
 def get_instructions(dataset_name, n=250, prompt='neutral'):
     if dataset_name is None:
         raise ValueError("dataset_name is not provided")
@@ -410,11 +428,14 @@ def get_instructions(dataset_name, n=250, prompt='neutral'):
     elif dataset_name == "100m_tweets":
         instructions = get_twitter_instructions(n=n)
 
-    elif dataset_name == "senator_submissions_merged":
-        instructions = get_merged_instructions(n=n)
-
     elif dataset_name == "reddit_submissions":
         instructions = get_reddit_instructions(n=n)
+
+    elif dataset_name == "wikipedia":
+        instructions = get_wikipedia_instructions(n=n)
+
+    elif dataset_name == "merged":
+        instructions = get_merged_random_instructions(n=n)
 
     else:
         raise NotImplementedError(f"Undefined dataset {dataset_name}.")
@@ -437,19 +458,74 @@ def load_human_dataset(dataset_name=None, **kwargs):
     elif dataset_name == "reddit_submissions":
         human_dataset, _, _ = load_reddit_submissions_dataset(**kwargs)
 
+    elif dataset_name == "wikipedia":
+        human_dataset, _, _ = load_wikipedia_dataset(**kwargs)
+
     elif dataset_name == "senator_tweets":
         human_dataset, _, _ = load_senator_tweets_dataset(**kwargs)
 
-    elif dataset_name == "senator_submissions_merged":
-        human_dataset, _, _ = load_senator_submissions_merged_dataset(**kwargs)
-
     elif dataset_name == "webis_reddit":
         human_dataset, _, _ = load_clear_webis_reddit_dataset(**kwargs)
+
+    elif dataset_name == "merged":
+        human_dataset, _, _ = load_merged_dataset(**kwargs)
 
     else:
         raise NotImplementedError(f"Undefined dataset {dataset_name}.")
 
     return human_dataset
+
+
+def load_merged_dataset(load_n=None, load_frac=1.0, lean=None, seed=1, split='train', dataset_type="standard"):
+
+    if load_frac != 1.0:
+        raise ValueError("load_frac != 1.0 not supported for merged datasets")
+
+    datasets = {}
+    print(f"Merging datasets: {datasets_to_merge.values()}")
+    for dataset_name in datasets_to_merge.keys():
+
+        if re.match(r"cluster_\d+", dataset_type):
+            cluster_index = int(dataset_type.split("_")[-1])
+            cluster_index_to_path_dict_path = datasets_clusters_to_merge[dataset_name]
+
+            with open(cluster_index_to_path_dict_path, "r") as f:
+                cluster_index_to_path_dict = json.load(f)
+            dataset_path = cluster_index_to_path_dict[str(cluster_index)]
+
+        else:
+            dataset_path = datasets_to_merge[dataset_name]
+
+        d = load_from_disk(dataset_path)
+        datasets[dataset_name] = d
+        print(f"Dataset {dataset_name} loaded. Size: {len(dataset_name)}")
+
+
+    # load stratified
+    if load_n is not None:
+        load_n_per_d = int(np.ceil(load_n / len(datasets)))
+    else:
+        load_n_per_d = min([len(d) for d in datasets.values()])
+        load_n = 3*load_n_per_d
+
+    for dataset_name, d in datasets.items():
+        d = d.shuffle(seed=seed)
+        d = d.select(range(load_n_per_d))
+        d = d.add_column("instruction", get_instructions(dataset_name, len(d)))
+
+        datasets[dataset_name] = d
+        print("Creating instructions for sample")
+
+    # select features intersection
+    common_features = set.intersection(*[set(d.features.keys()) for d in datasets.values()])
+
+    common_features.remove('id')  # can be different type in different datasets, and we don't need it
+
+    dataset = concatenate_datasets([d.select_columns(common_features) for d in datasets.values()])
+    dataset = dataset.shuffle(seed=seed)
+    sample = dataset.select(range(load_n))
+
+    return sample, None, None
 
 
 # before GPT-3
@@ -506,37 +582,5 @@ def load_senator_tweets_dataset(load_n=None, load_frac=1.0, lean=None, seed=1, s
     print("Creating instructions for sample")
     sample = sample.add_column("instruction", get_twitter_instructions(len(sample)))
     # sample = sample.map(create_twitter_instructions, batched=True, desc="Creating instructions for sample", load_from_cache_file=False, batch_size=len(sample))
-
-    return sample, None, None
-
-def load_senator_submissions_merged_dataset(load_n=None, load_frac=1.0, lean=None, seed=1, split='train', dataset_type="standard"):
-
-    dataset_path = f"./data/senator_submissions_merged/prepared-senator-submissions-merged"
-
-    if dataset_type != "standard":
-        raise ValueError(f"Type {dataset_type} not recognized.")
-
-    if split != "all":
-        raise ValueError(f"Split {split} not recognized (Must be 'all').")
-
-    print(f"Loading senator submissions merged dataset from {dataset_path}")
-    dataset = load_from_disk(dataset_path)
-
-    print(f"Dataset loaded. Size: {len(dataset)}")
-
-    if load_n is not None or load_frac != 1.0:
-        if load_n is None:
-            # load frac != 1.0
-            load_n = int(len(dataset)*load_frac)
-
-        dataset = dataset.shuffle(seed=seed)
-        sample = dataset.select(range(load_n))
-    else:
-        # full dataset
-        sample = dataset.shuffle(seed=seed)
-
-    print("Creating instructions for sample")
-    sample = sample.add_column("instruction", get_merged_instructions(len(sample)))
-    # sample = sample.map(create_merged_instructions, batched=True, desc="Creating instructions for sample", load_from_cache_file=False, batch_size=len(sample))
 
     return sample, None, None

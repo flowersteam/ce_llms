@@ -1,3 +1,3 @@
-nltk==3.8.1
-jsonlines==4.0.0
-termcolor==2.5.0
+termcolor
+jsonlines
+IPython

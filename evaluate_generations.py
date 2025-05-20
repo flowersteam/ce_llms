@@ -19,9 +19,9 @@ else:
 
 parser = argparse.ArgumentParser()
 parser.add_argument("--seed-dir", type=str, help="Experiment directory")
+parser.add_argument("--partition", type=str, help="Partition to evaluate. (Use only with merged datasets).", default=None)
 parser.add_argument("--emb", action="store_true", help="Embeddings and embedding based metrics")
 parser.add_argument("--gpt-quality", action="store_true", help="GPT quality")
-parser.add_argument("--llama-quality", action="store_true", help="Judge quality")
 parser.add_argument("--llama-quality-scale", action="store_true", help="Judge quality")
 parser.add_argument("--input", action="store_true", help="Judge quality")
 parser.add_argument("--gib", action="store_true", help="Compute gibberish score")
@@ -51,7 +51,17 @@ n_samples_cap = args.cap
 tokens_total = 0
 spent_total = 0
 
-eval_save_dir = Path("./eval_results") / seed_dir / f"{args.participant}"
+merged_dataset_names = ["wikipedia", "webis_reddit", "100m_tweets"]
+partition_to_instruction = {dataset_name: get_instructions(dataset_name=dataset_name, n=1)[0] for dataset_name in merged_dataset_names}
+
+if args.partition is not None:
+    assert "_merged_" in str(seed_dir)
+    assert "participants_1" in str(seed_dir)
+    eval_save_dir = Path("./eval_results") / str(seed_dir).replace("participants_1", f"participants_1_partition_{args.partition}") / f"{args.participant}"
+
+else:
+    eval_save_dir = Path("./eval_results") / seed_dir / f"{args.participant}"
+
 eval_save_dir.mkdir(parents=True, exist_ok=True)
 
 cache_dir = Path(".cache") / eval_save_dir
@@ -92,6 +102,9 @@ if args.input:
         part_input_d_path = str(seed_dir / f"gen_0" / f"{part}/input_dataset")
         part_input_d = datasets.load_from_disk(part_input_d_path)
 
+        if args.partition is not None:
+            part_input_d = part_input_d.filter(lambda x: x['instruction'] == partition_to_instruction[args.partition])
+
         if args.emb:
             emb_column_name = f"stella_embeddings"
             if emb_column_name not in part_input_d.features:
@@ -108,6 +121,9 @@ if args.input:
         input_ds.append(part_input_d)
 
     input_d = concatenate_datasets(input_ds)
+
+    if args.partition is not None:
+        assert set(input_d['instruction']) == {partition_to_instruction[args.partition]}
 
     # compute metrics
     #################
@@ -173,7 +189,8 @@ for gen_i in generations:
         compute_fn=load_merged_participants_dataset,
         path_pattern=str(seed_dir / f"gen_{gen_i}" / f"{args.participant}/full_output_dataset"),
         all_participants=all_participants,
-        size=n_samples_cap
+        size=n_samples_cap,
+        partition_instruction=partition_to_instruction.get(args.partition, None),
     )
 
 print(f"Adding embeddings")
@@ -183,6 +200,8 @@ for d_gen_i, output_dataset_capped in all_datasets_capped.items():
 
     if args.emb:
         if "stella_embeddings" not in output_dataset_capped.features:
+            # from IPython import embed; embed()
+
             stella_embedder = StellaEmbedder() if stella_embedder is None else stella_embedder
             output_dataset_capped = stella_embedder.add_embeddings(output_dataset_capped, batch_size=256)
 
@@ -239,6 +258,10 @@ for gen_i in generations:
 
 # per generation metrics
 for d_gen_i, d in all_datasets_capped.items():
+
+    if args.partition is not None:
+        assert set(d['instruction']) == {partition_to_instruction[args.partition]}
+
     print(f'Output dataset {d_gen_i}')
 
     # quick metrics
@@ -252,19 +275,19 @@ for d_gen_i, d in all_datasets_capped.items():
     for quick_metric, quick_metric_scores in quick_metrics_results.items():
         results[f"{quick_metric}_cap_{n_samples_cap}"][d_gen_i] = quick_metric_scores
 
-    results['selfbleu'], results['diversity_selfbleu'] = get_or_compute_cache(
+    results[f'selfbleu_cap_{n_samples_cap}'][d_gen_i], results[f'diversity_selfbleu_cap_{n_samples_cap}'][d_gen_i] = get_or_compute_cache(
         cache_path=str(cache_dir / f'selfbleu_cap_{n_samples_cap}_gen_{d_gen_i}_part_{args.participant}.pickle'),
         # force_recompute=True,
         compute_fn=compute_selfbleu, texts=d['text']
     )
 
-    results['word_entropy'] = get_or_compute_cache(
+    results[f'word_entropy_cap_{n_samples_cap}'][d_gen_i] = get_or_compute_cache(
         cache_path=str(cache_dir / f'word_entropy_cap_{n_samples_cap}_gen_{d_gen_i}_part_{args.participant}.pickle'),
         # force_recompute=True,
         compute_fn=compute_word_entropy, d=d
     )
 
-    results['aggregate_reading_level'] = get_or_compute_cache(
+    results[f'aggregate_reading_level_cap_{n_samples_cap}'][d_gen_i] = get_or_compute_cache(
         cache_path=str(cache_dir / f'reading_lvl_cap_{n_samples_cap}_gen_{d_gen_i}_part_{args.participant}.pickle'),
         compute_fn=aggregate_reading_level, texts=d['text']
     )
@@ -307,11 +330,6 @@ for d_gen_i, d in all_datasets_capped.items():
             results[f'cos_{k}_nn_diversity_{emb_name}_cap_{n_samples_cap}'][d_gen_i] = knn_cos_div
             results[f'cos_{k}_nn_spread_{emb_name}_cap_{n_samples_cap}'][d_gen_i] = cos_div / knn_cos_div
 
-    if args.llama_quality:
-        results[f'llama_quality_cap_{n_samples_cap}'][d_gen_i] = get_or_compute_cache(
-            cache_path=str(cache_dir / f'llama_quality_cap_{n_samples_cap}_gen_{d_gen_i}_part_{args.participant}.pickle'),
-            compute_fn=llama_quality, texts=d['text']
-        )
 
     if args.llama_quality_scale:
         results[f'llama_quality_scale_cap_{n_samples_cap}'][d_gen_i] = get_or_compute_cache(
@@ -383,6 +401,7 @@ if results_path.is_file():
 
     for metric in results:
         # if metric not in previous_results or metric == "llama_quality_cap_4000":
+        # if metric not in previous_results or True: # overwrite
         if metric not in previous_results:
             # add new metric to results
             previous_results[metric] = results[metric]

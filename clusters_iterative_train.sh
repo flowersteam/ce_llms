@@ -4,10 +4,11 @@
 #SBATCH --cpus-per-task=24
 #SBATCH --time=1:55:59
 #SBATCH --gres=gpu:1
-#SBATCH --array=0-399 # 1 (seeds) x 100 (dataset types) x 2 (ratios)
+#SBATCH --array=0-399 # 1 (seeds) x 200 (dataset types) x 2 (ratios)
 #SBATCH -o logs/clusters_iterative_train_%A_%a.log
 #SBATCH -e logs/clusters_iterative_train_%A_%a.log
 #SBATCH -J clusters_iterative_train
+##SBATCH --qos=qos_gpu_h100-dev
 
 start_time=$(date +%s)
 
@@ -18,8 +19,10 @@ echo ""
 echo "SLURM_JOB_ID: "$SLURM_JOB_ID"_"$SLURM_ARRAY_TASK_ID | tee -a $log_path
 
 # 6 ratios
-#ratios=(0.0625 0.125 0.25 0.5 0.75 1)
 ratios=(0.125 0.25) # 1/8, 1/4
+#ratios=(0.25 0.5) # 1/4, 1/2
+#ratios=(0.125) # 1/8
+
 ratios_len=${#ratios[@]}
 
 # 4 dataset types
@@ -54,26 +57,39 @@ echo "human_dataset_size:"$per_participant_human_dataset_size
 
 # mixed
 mixed_models_options=(
-  # llama 3.1 1B
-  "/lustre/fsn1/projects/rech/imi/utu57ed/.cache/huggingface/hub/models--unsloth--Llama-3.2-1B/snapshots/1d05b8ce9cd75f6baca1ccebf9653626ac261438"
+  # llama 3.2 1B
+  "/lustre/fsn1/projects/rech/imi/utu57ed/.cache/huggingface/hub/models--unsloth--Llama-3.2-1B/snapshots/8330ca72fe8cf1fc86a8b20b4835dc08fbbd2251"
   # qwen 2.5 1.5b
-  "/lustre/fsn1/projects/rech/imi/utu57ed/.cache/huggingface/hub/models--unsloth--Qwen2.5-1.5B/snapshots/8951671def651bbedbcdea3751f46cf35e78dfa9"
-  # smolm (1.7B)
+  "/lustre/fsn1/projects/rech/imi/utu57ed/.cache/huggingface/hub/models--unsloth--Qwen2.5-1.5B/snapshots/2d0a015faee2c1af360a6725a30c4d7a258ac4d4"
+  # smollm (1.7B)
   "/lustre/fsn1/projects/rech/imi/utu57ed/.cache/huggingface/hub/models--HuggingFaceTB--SmolLM-1.7B/snapshots/d7449ff7241c863f3e8accc475155f0f97afa011"
   # falcon (1b)
-  "/lustre/fsn1/projects/rech/imi/utu57ed/.cache/huggingface/hub/models--tiiuae--Falcon3-1B-Base/snapshots/34183642457812e78b53466798c3a818485ac969"
+  "/lustre/fsn1/projects/rech/imi/utu57ed/.cache/huggingface/hub/models--tiiuae--Falcon3-1B-Base/snapshots/cb37ef3559b157b5c9d9226296ba01a5162da1f7"
 )
 model="mixed"
 
-dataset_name="webis_reddit"
+#dataset_name="webis_reddit"
+#split="all"
+
+#dataset_name="100m_tweets"
+#split="all"
+
+#dataset_name="reddit_submissions"
+#split="all"
+
+#dataset_name="wikipedia"
+#split="all"
+
+dataset_name="merged"
 split="all"
 
 source /linkhome/rech/genini01/utu57ed/.bashrc
 
 module purge
 module load arch/h100
-module load python/3.11.5
-conda activate unsloth_311
+module load python/3.12.2
+conda activate unsloth_312
+#conda activate unsloth_vllm_312
 
 n_part=1
 accumulate=1
@@ -90,8 +106,11 @@ temp=1.5
 min_p=0.2
 n_generations=20
 
-exp_path=webis_clusters_results_v2/human_ai_ratio_dataset_${dataset_name}_type_${dattype}_participants_${n_part}/generated_${per_participant_ai_dataset_size}_human_${per_participant_human_dataset_size}_unsloth/seed_${seed}_${datetime}
-#exp_path=test/human_ai_ratio_dataset_${dataset_name}_type_${dattype}_participants_${n_part}/generated_${per_participant_ai_dataset_size}_human_${per_participant_human_dataset_size}_unsloth/seed_${seed}_${datetime}
+#exp_path=webis_clusters_results_v2/human_ai_ratio_dataset_${dataset_name}_type_${dattype}_participants_${n_part}/generated_${per_participant_ai_dataset_size}_human_${per_participant_human_dataset_size}_unsloth/seed_${seed}_${datetime}
+
+# NEW
+#exp_path=simulation_results/webis_clusters/clusters_dataset_${dataset_name}_type_${dattype}_participants_${n_part}/generated_${per_participant_ai_dataset_size}_human_${per_participant_human_dataset_size}_unsloth/seed_${seed}_${datetime}
+exp_path=simulation_results/${dataset_name}_clusters/clusters_dataset_${dataset_name}_type_${dattype}_participants_${n_part}/generated_${per_participant_ai_dataset_size}_human_${per_participant_human_dataset_size}_unsloth/seed_${seed}_${datetime}
 
 mkdir -p $exp_path
 log_path=$exp_path/log.txt
@@ -167,8 +186,11 @@ do
 done
 
 
-conda activate eval_311
+conda activate eval_312
 python evaluate_generations.py --emb --seed-dir $exp_path
+python evaluate_generations.py --emb --partition webis_reddit --cap 80 --seed-dir $exp_path
+python evaluate_generations.py --emb --partition 100m_tweets --cap 80 --seed-dir $exp_path
+python evaluate_generations.py --emb --partition wikipedia --cap 80 --seed-dir $exp_path
 
 end_time=$(date +%s)
 # Calculate the difference

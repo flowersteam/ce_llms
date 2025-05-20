@@ -1,6 +1,7 @@
 import numpy as np
 import matplotlib.pyplot as plt
-# plot with scatter
+from scipy.stats import pearsonr
+
 
 def plot_with_slope(X, y, xlabel, ylabel, title=None, save_dir=None):
     plt.scatter(X, y)
@@ -12,6 +13,9 @@ def plot_with_slope(X, y, xlabel, ylabel, title=None, save_dir=None):
     X_ = np.unique(X)
     plt.plot(X_, m*X_ + b, color='red', linewidth=0.5, linestyle='--')
 
+    # Calculate Pearson correlation
+    corr, _ = pearsonr(X, y)
+
     # Calculate center point for text placement
     x_center = min(X) + 0.5 * (max(X) - min(X))  # 50% from the left (center of x range)
     y_center = m * x_center + b  # y-value on the regression line at x_center
@@ -19,8 +23,9 @@ def plot_with_slope(X, y, xlabel, ylabel, title=None, save_dir=None):
     # Add slight offset to avoid text overlapping with the line
     y_offset = - 0.05 * (max(y) - min(y))  # 2% of y range
 
-    # add slope to figure near the center of the line
-    plt.text(x_center, y_center + y_offset, 'slope = {:.4f}'.format(m), fontsize=12)
+    # add slope and Pearson correlation to figure near the center of the line
+    plt.text(x_center, y_center + y_offset, f'slope = {m:.4f}\nPearson r = {corr:.4f}', fontsize=12)
+    # plt.text(x_center, y_center + y_offset, f'Pearson r = {corr:.4f}', fontsize=12)
 
     if title:
         plt.title(title)
@@ -51,6 +56,12 @@ q_l_senator_tweets = np.array([
     [76.512, 267.476, 1.0, 0.855],
 ])
 
+# # q-l plot
+# X = q_l_senator_tweets[:, 0]  # q
+# y = q_l_senator_tweets[:, 1]  # len
+# save_path = f"viz_results/length_experiments/senator_tweets_ql.pdf"
+# plot_with_slope(X, y, 'Human data quality', 'Human data length', 'senator tweets', save_dir=save_path)
+
 # q plot
 X = q_l_senator_tweets[:, 0]  # q
 y = q_l_senator_tweets[:, 3]  # rel_q
@@ -63,6 +74,7 @@ X = q_l_senator_tweets[:, 1]  # len
 y = q_l_senator_tweets[:, 3]  # rel
 save_path = f"viz_results/length_experiments/senator_tweets_l.pdf"
 plot_with_slope(X, y, 'Human data length', 'Relative Quality', 'senator tweets', save_dir=save_path)
+
 
 
 # 100M
@@ -116,6 +128,12 @@ q_l_100m_tweets = np.array([
 
 # keep only those where ratio is <0.5
 q_l_100m_tweets = q_l_100m_tweets[q_l_100m_tweets[:, 2] <= 0.5]
+
+# # ql plot
+# X = q_l_100m_tweets[:, 0]  # q
+# y = q_l_100m_tweets[:, 1]  # len
+# save_path = f"viz_results/length_experiments/100M_tweets_ql.pdf"
+# plot_with_slope(X, y, 'Human data quality', 'Human data length', '100M tweets', save_dir=save_path)
 
 # q plot
 X = q_l_100m_tweets[:, 0]  # q

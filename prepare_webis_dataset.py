@@ -282,3 +282,20 @@ if __name__ == '__main__':
     medium_d.save_to_disk(file_path + "_medium")
     long_d.save_to_disk(file_path + "_long")
 
+# webis_dataset <- prepared-no-tldr-200-minus-20-plus-clear-corpus-webis-tldr-17
+
+file_path = "./data/webis/prepared-no-tldr-200-minus-20-plus-clear-corpus-webis-tldr-17"
+split_dataset = datasets.load_from_disk(file_path)
+dataset = datasets.concatenate_datasets([split_dataset['train'], split_dataset['test']])
+
+# remove trailing newlines
+dataset = dataset.map(lambda examples: {"text": [t.rstrip() for t in examples["text"]]}, batched=True,
+                      desc="Removing trailing newlines")
+
+dataset = dataset.map(lambda examples: {"text_len": [len(t) for t in examples["text"]]}, batched=True,
+                      desc="Adding text_len")
+
+dataset = dataset.remove_columns("n_tokens")
+
+dataset.save_to_disk(f"./data/webis/webis_dataset")
+# add qualities to get webis_dataset_with_qualities

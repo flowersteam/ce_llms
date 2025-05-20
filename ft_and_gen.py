@@ -1,3 +1,4 @@
+from unsloth import is_bfloat16_supported
 import argparse
 from termcolor import cprint
 from pathlib import Path
@@ -7,7 +8,6 @@ from termcolor import cprint
 from dataset_utils import *
 from model_utils import *
 
-from unsloth import is_bfloat16_supported
 
 cache_dir = ".cache"
 

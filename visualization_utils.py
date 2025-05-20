@@ -9,7 +9,6 @@ import pandas as pd
 from sklearn.preprocessing import StandardScaler
 from sklearn.decomposition import PCA
 from sklearn.manifold import TSNE
-import umap
 import os
 from scipy.spatial import ConvexHull
 from scipy.stats import sem
@@ -75,48 +74,21 @@ def plot_and_save(
         ys,
         labels,
         ylabel=None, xlabel=None, yticks=None, ylim=None,
-        violin=False, linewidths=None, linestyles=None, colors=None, fontsize=10, log=False,
+        violin=False, linewidths=None, linestyles=None, colors=None, fontsize=10, label_fontsize=10, log=False,
         save_path=None, no_show=True,
-        assert_n_datapoints=None, scatter=False,
+        assert_n_datapoints=None, scatter=False, no_legend=False, subplot_adjust_args=None,
 ):
     plt.style.use('seaborn-v0_8-darkgrid')
 
     assert len(labels) == len(ys)
     plt.figure(figsize=(15, 10))
 
-    # power analysis
-    def cohend(d1, d2):
-        n1, n2 = len(d1), len(d2)
-        s1, s2 = np.var(d1, ddof=1), np.var(d2, ddof=1)
-        s = np.sqrt(((n1 - 1) * s1 + (n2 - 1) * s2) / (n1 + n2 - 2))
-        u1, u2 = np.mean(d1), np.mean(d2)
-        return (u1 - u2) / s
+    handles = []
+    labels_used = []
 
-    from statsmodels.stats.power import TTestIndPower
-    def compute_N(y_a, y_b):
-        effect = cohend(y_a, y_b)
-
-        # perform power analysis
-        analysis = TTestIndPower()
-        result = analysis.solve_power(min(np.abs(effect), 5), power=0.8, nobs1=None, ratio=1.0, alpha=0.05/6)
-        return effect, result
-
-    # xs_ = list(ys[0].keys())
-    # x_0 = 0.0
-    # for l_i, lab in enumerate(labels):
-    #     print(f"Lab: {lab}")
-    #     for x_ in xs_:
-    #         if x_ == x_0:  continue
-    #         y_a = ys[l_i][x_0]
-    #         y_b = ys[l_i][x_]
-    #         assert len(y_a) == len(y_b)
-    #         effect, result = compute_N(y_a, y_b)
-    #
-    #         print(f"X: {x_} effect: {effect} -> N: {result}")
 
     for y, label, col, lw, ls in zip(ys, labels, colors, linewidths, linestyles):
-
-        xs = sorted(y.keys())  # e.g. generations / ratios
+        xs = sorted(y.keys())
 
         if violin:
             # per text
@@ -135,8 +107,9 @@ def plot_and_save(
             vp['cmins'].set_color(col)
 
             ax = plt.gca()
-            ax.plot([], [], c=col, label=label)
-
+            h, = ax.plot([], [], c=col, label=label)
+            handles.append(h)
+            labels_used.append(label)
             ax.set_xticks(range(1, len(xs) + 1))
             ax.set_xticklabels(xs)
 
@@ -158,13 +131,14 @@ def plot_and_save(
             if assert_n_datapoints:
                 assert set(map(len, y.values())) == {assert_n_datapoints}, f"{set(map(len, y.values()))} is not all {assert_n_datapoints} for {label}"
 
-            # col = str(lw/(max(linewidths)+5))
-            plt.plot(xs, mean_ys, label=label, c=col, linewidth=lw, linestyle=ls)
+            h, = plt.plot(xs, mean_ys, label=label, c=col, linewidth=lw, linestyle=ls)
             plt.fill_between(xs, mean_ys-sems_ys, mean_ys+sems_ys, alpha=0.2, color=col)
+            handles.append(h)
+            labels_used.append(label)
 
             if scatter:
-                for i, x in enumerate(xs):
-                    plt.scatter([x] * len(y[x]), y[x], color=col, alpha=0.6, s=5)  # Adjust `s` for point size
+                for x in xs:
+                    plt.scatter([x] * len(y[x]), y[x], color=col, alpha=0.6, s=5)
 
     if yticks:
         plt.yticks(yticks)
@@ -179,22 +153,43 @@ def plot_and_save(
     plt.xticks(fontsize=fontsize)
 
     if ylabel:
-        plt.ylabel(ylabel, fontsize=fontsize)
+        plt.ylabel(ylabel, fontsize=label_fontsize, labelpad=20)
 
     if xlabel:
-        plt.xlabel(xlabel, fontsize=fontsize)
+        plt.xlabel(xlabel, fontsize=label_fontsize, labelpad=20)
 
-    leg=plt.legend(fontsize=fontsize, loc="upper left")
-    # set the linewidth of each legend object
-    for legobj in leg.legendHandles:
-        legobj.set_linewidth(5.0)
+    if subplot_adjust_args is not None:
+        plt.subplots_adjust(**subplot_adjust_args)
+    else:
+        plt.tight_layout()
 
     if save_path:
         plt.savefig(save_path+".pdf", dpi=300)
         print(f"Saved to: {save_path}")
 
-    plt.tight_layout()
-    
+    if not no_legend:
+        leg = plt.legend(handles=handles, labels=labels_used, fontsize=fontsize, loc="upper left")
+        for line in leg.get_lines():
+            line.set_linewidth(5.0)
+
+    elif save_path:
+        # create separate figure for legend
+        fig_legend = plt.figure(figsize=(20, 1.5))
+        ax_legend = fig_legend.add_subplot(111)
+
+        for h in handles:
+            h.set_linewidth(20)
+
+        fig_legend.legend(handles=handles, labels=labels_used, loc='center', fontsize=fontsize, frameon=False, ncols=3, markerscale=10)
+        ax_legend.axis('off')
+        fig_legend.subplots_adjust(left=0.1, right=0.9, top=0.9, bottom=0.1)
+        legend_path = save_path + "_legend.pdf"
+        fig_legend.savefig(legend_path, format='pdf')
+        print(f"Saved legend to: {legend_path}")
+        plt.close(fig_legend)
+
+
+
     if not no_show:
         plt.show()
     else:
@@ -334,6 +329,7 @@ def plot_repr(embs, dataset_lens, labels, save_path, gif=True, hexbin=True):
         plt.close()
 
 def visualize_datasets(datasets, dataset_labels, experiment_tag, gif = True, hexbin = True, embeddings_collumn="embeddings"):
+    import umap
     # Visualize embeddings
     dataset = concatenate_datasets(datasets, axis=0, info=None)
 

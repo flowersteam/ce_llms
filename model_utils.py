@@ -1,5 +1,15 @@
 import warnings
 
+try:
+    from unsloth import FastLanguageModel
+    from unsloth.chat_templates import get_chat_template, train_on_responses_only
+    from trl import SFTTrainer, DataCollatorForCompletionOnlyLM
+    from peft import prepare_model_for_kbit_training, get_peft_model, LoraConfig, PeftModel
+except:
+    warnings.warn("Packages for unsloth inference were not installed.")
+    pass
+
+
 import numpy as np
 import time
 import jsonlines
@@ -11,14 +21,6 @@ from datasets import Dataset
 from transformers import TrainingArguments, DataCollatorForSeq2Seq
 
 
-try:
-    from trl import SFTTrainer, DataCollatorForCompletionOnlyLM
-    from peft import prepare_model_for_kbit_training, get_peft_model, LoraConfig, PeftModel
-    from unsloth import FastLanguageModel
-    from unsloth.chat_templates import get_chat_template, train_on_responses_only
-except:
-    warnings.warn("Packages for unsloth inference were not installed.")
-    pass
 
 def secs_2_hms(s):
     minutes, seconds = divmod(s, 60)
@@ -37,6 +39,7 @@ def load_model(model_path, seed, r=16, alpha=16, use_rslora=False, load_in_4bit=
         max_seq_length=max_model_len,
         dtype=torch.bfloat16,
         load_in_4bit=load_in_4bit,
+        # fast_inference=True
     )
 
     if hasattr(model.config, "model_max_length"):
@@ -198,7 +201,9 @@ def generate_data(
             # wrap indices
             batch_indices = list(range(batch_start_i, dataset_size)) + list(range(0, batch_end_i))
 
-        batch_instructions = [instructions[i] for i in batch_indices]
+        batch_instructions = [instructions[i] for i in batch_indices]\
+
+        ###### regular generate
         input_ids = tokenizer(
             [chat_template.format(instr, "") for instr in batch_instructions],
             return_tensors="pt",
@@ -214,6 +219,38 @@ def generate_data(
         for inp, gen_ids in zip(input_ids, batch_gen_ids):
             tx = tokenizer.decode(gen_ids[len(inp):], skip_special_tokens=True)
             generated_texts.append(tx)
+        ###### regular generate
+
+
+        # ###### FAST GENERATE
+        # input_texts = [chat_template.format(instr, "") for instr in batch_instructions]
+        # def generation_params_to_vllm_sampling_params(generation_params):
+        #     """
+        #     Convert generation parameters to VLLM sampling parameters.
+        #     """
+        #     from vllm import SamplingParams
+        #     sampling_params = {}
+        #     for p, v in generation_params.items():
+        #         if p in ['do_sample']:
+        #             continue
+        #         elif p in ['top_k']:
+        #             sampling_params["top_k"] = v or -1
+        #         elif p == "max_new_tokens":
+        #             sampling_params["max_tokens"] = v
+        #         elif p in ['temperature', 'top_p', 'min_p', 'repetition_penalty']:
+        #             sampling_params[p] = v
+        #     sampling_params = SamplingParams(**sampling_params)
+        #     return sampling_params
+        #
+        # results = model.fast_generate(
+        #     input_texts,
+        #     sampling_params=generation_params_to_vllm_sampling_params(generation_arguments),
+        # )
+        #
+        # for result in results:
+        #     tx = result.outputs[0].text
+        #     generated_texts.append(tx)
+        # ######
 
         print(f"Generated text sample:{generated_texts[-1]}")
 
