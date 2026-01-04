@@ -107,13 +107,11 @@ pip install -r requirements_cluster
 
 # Experiment
 
-```
-bash iterative_train.sh
-```
+A minimal example is shown in `iterative_train.sh`.
+This script is intended to be launched as job array on a slurm-based cluster:
+`sbatch iterative_train.sh`
 
-```
-# todo: update this with iterative train, run_on_node, and generate_plots scrips
-python evaluate_generations.py --emb --experiment-dir results/Testing_iterative_learning_instructions_deduplicate_n_4000_temp_0.7 
-python show_sample_generations.py --experiment-dir results/Testing_iterative_learning_instructions_deduplicate_n_4000_temp_0.7/ 
-python visualize.py --metric div --directories eval_results/Testing_iterative_learning_*/part_*
-```
+Tt can also be run locally with:
+`SLURM_ARRAY_TASK_ID=0 bash iterative_train.sh` where 0 would define the first job in the array.
+
+To recreate the full experiments see instruction in: `regression_analysis_procedure.md`

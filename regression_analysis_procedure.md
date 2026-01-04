@@ -1,6 +1,4 @@
-
-
-# New procedure
+# Full analysis procedure
 
 ## Create conda env
 
@@ -251,8 +249,3 @@ python -m regression_analysis.regression_analysis d -g 500 --no-show --cv 10 \
     --clusters-simulation-results-dir eval_results/simulation_results/webis_clusters
 ```
 This runs the analysis and saves the figures in `regression_analysis/results/webis_clusters/`
-
-
-TODO: promijeni path u correlate_metrics.py;plot_collapse.py;regression_analysis.py
-
-
